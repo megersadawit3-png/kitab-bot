@@ -108,3 +108,53 @@ def set_language(telegram_id, language):
 if __name__ == "__main__":
     init_db()
     print("Kitab ዳታቤዝ እና ሁሉም ቴብሎች በተሳካ ሁኔታ ተፈጥረዋል!")
+    # ከዳታቤዝ ውስጥ በካቴጎሪ እና በዓይነት (Book, Handout...) ለመለየት
+def get_contents_by_category(content_type, category):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    # ለምሳሌ፡ category='Education' እና በዋናው ሜኑ '📚 Books' ከተጫነ
+    cursor.execute("""
+        SELECT * FROM contents 
+        WHERE category = ? AND status = 'approved'
+    """, (category,))
+    rows = cursor.fetchall()
+    conn.close()
+    return rows
+
+# ለአንድ መጽሐፍ የተለየ መረጃ ለማውጣት (ለDetail Page)
+def get_content_by_id(content_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM contents WHERE id = ?", (content_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row
+
+# ቦቱን ስንሞክረው ባዶ እንዳይሆን ጥቂት ናሙና መጻሕፍት መሙያ (Sample Data)
+def seed_sample_data():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    # መጀመሪያ አንድ ናሙና ደራሲ በሊስት እናስገባ (status = approved)
+    cursor.execute("INSERT OR IGNORE INTO users (telegram_id, name, language) VALUES (9999, 'Sample Author', 'am')")
+    cursor.execute("INSERT OR IGNORE INTO authors (user_id, status, biography) VALUES (9999, 'approved', 'የሙከራ ደራሲ')")
+    
+    # ጥቂት መጻሕፍት እና ማጠቃለያዎች ማከል
+    sample_books = [
+        (9999, 'የቅኔ ጥበብ', 'Literature', 'ስለ አማርኛ ቅኔዎች የሚያስተምር መጽሐፍ', 150.0, 'files/qene.pdf', 'approved'),
+        (9999, 'Maths Grade 12', 'Education', 'National Exam Preparation Question Bank', 80.0, 'files/math12.pdf', 'approved'),
+        (9999, 'የንግድ ሥራ መመሪያ', 'Business', 'እንዴት ስኬታማ የንግድ ሰው መሆን ይቻላል?', 200.0, 'files/business.pdf', 'approved')
+    ]
+    
+    for book in sample_books:
+        cursor.execute("""
+            INSERT OR IGNORE INTO contents (author_id, title, category, description, price, file_path, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, book)
+        
+    conn.commit()
+    conn.close()
+    if __name__ == "__main__":
+    init_db()
+    seed_sample_data() # ይህንን አዲስ መስመር ጨምረው
+    print("Kitab ዳታቤዝ ታድሷል፣ የሙከራ መረጃዎችም ገብተዋል!")
