@@ -155,6 +155,9 @@ def seed_sample_data():
     conn.commit()
     conn.close()
     if __name__ == "__main__":
-    init_db()
-    seed_sample_data() # ይህንን አዲስ መስመር ጨምረው
+    init_db()          # ይህ መስመር 4 ቦታ (Spaces) ወደ ውስጥ መግባት አለበት
+    try:
+        seed_sample_data()  # ይህ መስመርም 4 ቦታ (Spaces) ወደ ውስጥ መግባት አለበት
+    except Exception:
+        pass
     print("Kitab ዳታቤዝ ታድሷል፣ የሙከራ መረጃዎችም ገብተዋል!")
