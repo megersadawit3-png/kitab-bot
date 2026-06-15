@@ -16,9 +16,7 @@ import database
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # የውይይት መቆጣጠሪያ ደረጃዎች (Conversation States)
-# 1. ለደራሲ ምዝገባ
 AWAITING_BIO, AWAITING_PHONE = range(2)
-# 2. ለመጽሐፍ ጭነት (ቁጥሮቹ እንዳይደራረቡ ከ 10 እንጀምራቸው)
 AWAITING_TITLE, AWAITING_CATEGORY, AWAITING_DESC, AWAITING_PRICE, AWAITING_FILE = range(10, 15)
 
 # =====================================================================
@@ -111,7 +109,7 @@ async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return ConversationHandler.END
 
     if lang == "am":
-        await update.message.reply_text("👋 ወደ ደራሲያን ምዝገባ እንኳን በደህና መጡ!\n\nእባክዎን አጭር የህይវត្ត ታሪክዎን (Biography) ይጻፉልን፦", reply_markup=ReplyKeyboardRemove())
+        await update.message.reply_text("👋 ወደ ደራሲያን ምዝገባ እንኳን በደህና መጡ!\n\nእባክዎን አጭር የህይወት ታሪክዎን (Biography) ይጻፉልን፦", reply_markup=ReplyKeyboardRemove())
     elif lang == "or":
         await update.message.reply_text("👋 Gara galmee barreessitootaa baga nagaan dhuftan!\n\nMaaloo seenaa keessan gabaabaan (Biography) nuu barreessaa:", reply_markup=ReplyKeyboardRemove())
     else:
@@ -157,6 +155,15 @@ async def save_phone_and_finish(update: Update, context: ContextTypes.DEFAULT_TY
         await update.message.reply_text("🎉 Galmeen barreessummaa keessan milkiyn mirkanaayeera!", reply_markup=ReplyKeyboardMarkup(or_main_keyboard, resize_keyboard=True))
     else:
         await update.message.reply_text("🎉 Your author registration was approved successfully!", reply_markup=ReplyKeyboardMarkup(en_main_keyboard, resize_keyboard=True))
+    return ConversationHandler.END
+
+
+async def cancel_reg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    lang = get_user_lang(user_id)
+    kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
+    msg = "ምዝገባው ተቋርጧል።" if lang == "am" else ("Galmeen addaan citeera." if lang == "or" else "Registration canceled.")
+    await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
     return ConversationHandler.END
 
 
@@ -253,7 +260,6 @@ async def save_file_and_finish(update: Update, context: ContextTypes.DEFAULT_TYP
     os.makedirs("files", exist_ok=True)
     file_path = f"files/{doc.file_name}"
     
-    # ፋይሉን ሰርቨሩ ላይ ሴቭ ማድረግ
     telegram_file = await context.bot.get_file(doc.file_id)
     await telegram_file.download_to_drive(file_path)
     
@@ -262,7 +268,6 @@ async def save_file_and_finish(update: Update, context: ContextTypes.DEFAULT_TYP
     desc = context.user_data.get('upload_desc')
     price = context.user_data.get('upload_price')
     
-    # ዳታቤዝ ውስጥ ማስቀመጥ
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -313,7 +318,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if text in ["📚 መጻሕፍት", "📚 Kitaabota", "📚 Books"]:
         kb = am_cat_keyboard if lang == "am" else (or_cat_keyboard if lang == "or" else en_cat_keyboard)
-        msg = "እባክዎ የይዘት ዘርፍ ይምረጡ፦" if lang == "am" else ("Maaloo gosa kitaboota filadha:-" if lang == "or" else "Please select the content category:")
+        msg = "እባክዎ የይዘት ዘርፍ ይምረጡ፦" if lang == "am" else ("Maaloo gosa kitaboota arguu barbaaddan filadha:-" if lang == "or" else "Please select the content category:")
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         return
         
@@ -388,3 +393,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
