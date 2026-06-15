@@ -1,14 +1,15 @@
 import logging
 import sqlite3
 import os
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
     ContextTypes,
     filters,
-    ConversationHandler
+    ConversationHandler,
+    CallbackQueryHandler
 )
 from config import BOT_TOKEN, DB_NAME
 import database
@@ -353,6 +354,94 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(caption)
         return
 
+    # 🔍 ተጠቃሚው የመጽሐፍ ርዕስ በቀጥታ ሲጽፍ ትዕዛዝ ማስተናገጃ (Title Handler)
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT rowid, * FROM contents WHERE title = ? AND status = 'approved'", (text,))
+    book = cursor.fetchone()
+    conn.close()
+
+    if book:
+        if lang == "am":
+            checkout_msg = (
+                f"🛒 **የመግዣ ማጠቃለያ**\n\n"
+                f"📚 **ርዕስ:** {book['title']}\n"
+                f"💰 **ዋጋ:** {book['price']} ETB\n"
+                f"📝 **መግለጫ:** {book['description']}\n\n"
+                f"ይህንን መጽሐፍ ገዝተው በቅጽበት ለማውረድ ከታች ያለውን የክፍያ ቁልፍ ይጫኑ፦"
+            )
+            btn_text = "💳 በ Chapa / Telebirr ክፈል"
+        elif lang == "or":
+            checkout_msg = (
+                f"🛒 **Maamilummaa Bitataa**\n\n"
+                f"📚 **Mata duree:** {book['title']}\n"
+                f"💰 **Gatii:** {book['price']} ETB\n"
+                f"📝 **Ibsa:** {book['description']}\n\n"
+                f"Kitaaba kana bitachuuf qabdoo gadii cuqaasaa:"
+            )
+            btn_text = "💳 Kaffaltii Raawwadhu"
+        else:
+            checkout_msg = (
+                f"🛒 **Purchase Order**\n\n"
+                f"📚 **Title:** {book['title']}\n"
+                f"💰 **Price:** {book['price']} ETB\n"
+                f"📝 **Description:** {book['description']}\n\n"
+                f"Click the button below to complete your purchase and download the book:"
+            )
+            btn_text = "💳 Pay Now"
+
+        keyboard = [[InlineKeyboardButton(btn_text, callback_data=f"buy_{book['rowid']}")]]
+        await update.message.reply_text(checkout_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
+
+
+# =====================================================================
+# 💳 የክፍያ እና ፋይል ማድረሻ ማስተናገጃ (CALLBACK QUERY HANDLER)
+# =====================================================================
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    user_id = update.effective_user.id
+    lang = get_user_lang(user_id)
+    
+    if data.startswith("buy_"):
+        row_id = data.split("_")[1]
+        
+        conn = sqlite3.connect(DB_NAME)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM contents WHERE rowid = ?", (row_id,))
+        book = cursor.fetchone()
+        conn.close()
+        
+        if book:
+            if lang == "am":
+                await query.edit_message_text(f"⏳ የክፍያ ማረጋገጫ... እባክዎ ይጠብቁ...")
+            elif lang == "or":
+                await query.edit_message_text(f"⏳ Kaffaltii mirkaneessaa... maaloo eegaa...")
+            else:
+                await query.edit_message_text(f"⏳ Verifying payment... please wait...")
+            
+            # ፋይሉን የመላክ ሂደት
+            try:
+                file_path = book['file_path']
+                if os.path.exists(file_path):
+                    if lang == "am":
+                        await context.bot.send_message(chat_id=user_id, text=f"✅ ክፍያዎ ተረጋግጧል! የገዙት መጽሐፍ እነሆ፦")
+                    elif lang == "or":
+                        await context.bot.send_message(chat_id=user_id, text=f"✅ Kaffaltiin keessan mirkanaayeera! Kitaabni keessan ergameera፦")
+                    else:
+                        await context.bot.send_message(chat_id=user_id, text=f"✅ Payment successful! Here is your book:")
+                        
+                    await context.bot.send_document(chat_id=user_id, document=open(file_path, 'rb'))
+                else:
+                    if lang == "am": await context.bot.send_message(chat_id=user_id, text="❌ ይቅርታ፣ የመጽሐፉ ፋይል በሴርቨሩ ላይ አልተገኘም።")
+                    else: await context.bot.send_message(chat_id=user_id, text="❌ Sorry, the book file was not found on the server.")
+            except Exception as e:
+                logging.error(f"Error sending file: {e}")
+
 
 # =====================================================================
 # 🏁 ዋናው የማስነሻ ክፍል (MAIN FUNCTION)
@@ -386,11 +475,11 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(reg_handler)
     app.add_handler(upload_handler)
+    app.add_handler(CallbackQueryHandler(handle_callback)) # የክፍያ በተኑን ለመስማት የተጨመረ
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Kitab Bot (ቋንቋዎች የተስተካከሉበት + Book Upload የያዘው) ተነስቷል...")
+    print("Kitab Bot (የመጽሐፍ መግዣ Flow የተካተተበት) ተነስቷል...")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-    
