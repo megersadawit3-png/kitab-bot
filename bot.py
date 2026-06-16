@@ -31,9 +31,8 @@ am_main_keyboard = [
     ["🔍 ፈልግ (Search)", "📁 የእኔ ላይብረሪ"],
     ["✍️ ደራሲ መሆን እፈልጋለሁ", "➕ አዲስ መጽሐፍ አክል", "☎️ እርዳታ"]
 ]
-
 am_cat_keyboard = [
-    ["📖 ስነ-ጽሑፍ (Literature)", "🎓 ትምህርት (Education)"],
+    ["📖 ስነ-ጽሁፍ (Literature)", "🎓 ትምህርት (Education)"],
     ["📖 ሃይማኖት (Religion)", "📜 ታሪክ (History)"],
     ["💼 ንግድ (Business)", "💻 ቴክኖሎጂ (Technology)"],
     ["⬅️ ወደ ዋናው ማውጫ"]
@@ -168,99 +167,78 @@ async def cancel_reg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
     return ConversationHandler.END
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
+
+# =====================================================================
+# ➕ አዲስ መጽሐፍ ማስገቢያ ፍሰት (BOOK UPLOAD FLOW)
+# =====================================================================
+async def start_book_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
-    # 🌐 የቋንቋ መቀያየሪያ ክፍሎች
-    if text == "🇪🇹 አማርኛ":
-        database.set_language(user_id, "am")
-        await update.message.reply_text("ወደ ዋናው ማውጫ እንኳን በደህና መጡ!", reply_markup=ReplyKeyboardMarkup(am_main_keyboard, resize_keyboard=True))
-        return
-    elif text == "🌳 Afaan Oromoo":
-        database.set_language(user_id, "or")
-        await update.message.reply_text("Gara menuu gurguddaatti baga nagaan dhuftan!", reply_markup=ReplyKeyboardMarkup(or_main_keyboard, resize_keyboard=True))
-        return
-    elif text == "🇬🇧 English":
-        database.set_language(user_id, "en")
-        await update.message.reply_text("Welcome to the Main Menu!", reply_markup=ReplyKeyboardMarkup(en_main_keyboard, resize_keyboard=True))
-        return
-
     lang = get_user_lang(user_id)
+    
+    if not is_user_author(user_id):
+        if lang == "am": await update.message.reply_text("❌ መጽሐፍ ለመጫን መጀመሪያ ደራሲ ሆነው መመዝገብ አለብዎት!")
+        elif lang == "or": await update.message.reply_text("❌ Kitaaba galchuuf jalqaba barreessaa ta'uu qabdu!")
+        else: await update.message.reply_text("❌ You must register as an author first before uploading books!")
+        return ConversationHandler.END
 
-    # 📚 መጻሕፍት ማውጫ ሲመረጥ
-    if text in ["📚 መጻሕፍት", "📚 Kitaabota", "📚 Books"]:
-        kb = am_cat_keyboard if lang == "am" else (or_cat_keyboard if lang == "or" else en_cat_keyboard)
-        msg = "እባክዎ የይዘት ዘርፍ ይምረጡ፦" if lang == "am" else ("Maaloo gosa kitaboota arguu barbaaddan filadha:-" if lang == "or" else "Please select the content category:")
-        await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
-        return
-        
-    # ⬅️ ወደ ዋናው ማውጫ መመለሻ
-    elif text in ["⬅️ ወደ ዋናው ማውጫ", "⬅️ Gara Menuu Gurguddaatti", "⬅️ Back to Main Menu"]:
-        kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
-        msg = "ወደ ዋናው ማውጫ ተመልሰዋል፦" if lang == "am" else ("Gara menuu gurguddaatti debi'aniittu:-" if lang == "or" else "Returned to Main Menu:")
-        await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
-        return
+    if lang == "am": await update.message.reply_text("📝 እባክዎ የመጽሐፉን ርዕስ (Title) ያስገቡ፦", reply_markup=ReplyKeyboardRemove())
+    elif lang == "or": await update.message.reply_text("📝 Maaloo mata duree kitaabaa galchaa:", reply_markup=ReplyKeyboardRemove())
+    else: await update.message.reply_text("📝 Please enter the title of the book:", reply_markup=ReplyKeyboardRemove())
+    return AWAITING_TITLE
 
-    # 🎯 የካቴጎሪ ፍለጋ ማዛመጃ (በማናቸውም ቋንቋ ቢላክ ይለየዋል)
-    db_category = None
-    if "Literature" in text or "ስነ-ጽሑፍ" in text or "ስነ-ጽሁፍ" in text or "Og-barruu" in text:
-        db_category = "Literature"
-    elif "Education" in text or "ትምህርት" in text or "Barnoota" in text:
-        db_category = "Education"
-    elif "Religion" in text or "ሃይማኖት" in text or "Amantiikaa" in text:
-        db_category = "Religion"
-    elif "History" in text or "ታሪክ" in text or "Seenaa" in text:
-        db_category = "History"
-    elif "Business" in text or "ንግድ" in text or "Daldala" in text:
-        db_category = "Business"
-    elif "Technology" in text or "ቴክኖሎጂ" in text or "Teeknoolojii" in text:
-        db_category = "Technology"
 
-    if db_category:
-        conn = sqlite3.connect(DB_NAME)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        # 💡 ማስተካከያ፡ የ'status' መስፈርቱን በማንሳት ወይም ሁለቱንም አማራጮች እንዲፈልግ በማድረግ አስተማማኝ አደረግነው
-        cursor.execute("SELECT rowid, * FROM contents WHERE category = ? AND (status = 'approved' OR status IS NULL OR status = '')", (db_category,))
-        books = cursor.fetchall()
-        conn.close()
-        
-        if not books:
-            if lang == "am": msg = f"😔 ይቅርታ፣ በዚህ ሰዓት በ'{text}' ዘርፍ የተጫነ መጽሐፍ የለም።"
-            elif lang == "or": msg = f"😔 Dardon, gosa kanaan '{text}' kitaabni argamu hin jiru."
-            else: msg = f"😔 Sorry, there are no books available in the '{text}' category right now."
-            await update.message.reply_text(msg)
-            return
+async def save_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['upload_title'] = update.message.text
+    user_id = update.effective_user.id
+    lang = get_user_lang(user_id)
+    
+    kb = am_cat_keyboard if lang == "am" else (or_cat_keyboard if lang == "or" else en_cat_keyboard)
+    msg = "እባክዎ የመጽሐፉን ዘርፍ (Category) ይምረጡ፦" if lang == "am" else ("Maaloo gosa kitaabaa filadha:" if lang == "or" else "Please select the book category:")
+    
+    await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+    return AWAITING_CATEGORY
 
-        # መጻሕፍት ከተገኙ ለተጠቃሚው ያሳያል
-        for book in books:
-            if lang == "am": 
-                caption = f"📚 **ርዕስ:** {book['title']}\n💰 **ዋጋ:** {book['price']} ETB\n📝 **መግለጫ:** {book['description']}"
-                btn_text = f"🛒 {book['title']}ን ግዛ"
-            elif lang == "or": 
-                caption = f"📚 **Mata duree:** {book['title']}\n💰 **Gatii:** {book['price']} ETB\n📝 **Ibsa:** {book['description']}"
-                btn_text = f"🛒 {book['title']} Biti"
-            else: 
-                caption = f"📚 **Title:** {book['title']}\n💰 **Price:** {book['price']} ETB\n📝 **Description:** {book['description']}"
-                btn_text = f"🛒 Buy {book['title']}"
-            
-            inline_kb = [[InlineKeyboardButton(btn_text, callback_data=f"checkout_{book['rowid']}")]]
-            await update.message.reply_text(caption, reply_markup=InlineKeyboardMarkup(inline_kb), parse_mode="Markdown")
-        return
 
-    # 🔍 መጽሐፍ በስም በቀጥታ የመፈለጊያ ክፍል
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    cursor.execute("SELECT rowid, * FROM contents WHERE LOWER(title) = LOWER(?)", (text,))
-    book = cursor.fetchone()
-    conn.close()
+async def save_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    lang = get_user_lang(user_id)
+    
+    cat_map = {
+        "📖 ስነ-ጽሁፍ (Literature)": "Literature", "📖 ስነ-ጽሑፍ (Literature)": "Literature", "📖 Og-barruu (Literature)": "Literature", "📖 Literature": "Literature",
+        "🎓 ትምህርት (Education)": "Education", "🎓 Barnoota (Education)": "Education", "🎓 Education": "Education",
+        "📖 ሃይማኖት (Religion)": "Religion", "📖 Amantiikaa (Religion)": "Religion", "📖 Religion": "Religion",
+        "📜 ታሪክ (History)": "History", "📜 Seenaa (History)": "History", "📜 History": "History",
+        "💼 ንግድ (Business)": "Business", "💼 Daldala (Business)": "Business", "💼 Business": "Business",
+        "💻 ቴክኖሎጂ (Technology)": "Technology", "💻 Teeknoolojii (Technology)": "Technology", "💻 Technology": "Technology"
+    }
+    
+    context.user_data['upload_cat'] = cat_map.get(text, "Literature")
+    
+    msg = "📝 ስለ መጽሐፉ አጭር መግለጫ (Description) ይጻፉ፦" if lang == "am" else ("Maaloo ibsa kitaabaa gabaabaan barreessaa:" if lang == "or" else "Please write a short description of the book:")
+    await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
+    return AWAITING_DESC
 
-    if book:
-        await show_checkout_summary(update, context, book, lang)
-        return
+
+async def save_desc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['upload_desc'] = update.message.text
+    user_id = update.effective_user.id
+    lang = get_user_lang(user_id)
+    
+    msg = "💰 የመጽሐፉን ዋጋ በብር (ETB) ያስገቡ (ምሳሌ፦ 150)፦" if lang == "am" else ("💰 Gatii kitaabaa birriidhaan galchaa (fkn: 150):" if lang == "or" else "💰 Enter the price of the book in ETB (e.g., 150):")
+    await update.message.reply_text(msg)
+    return AWAITING_PRICE
+
+
+async def save_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+    user_id = update.effective_user.id
+    lang = get_user_lang(user_id)
+    
+    try:
+        price = float(text)
+        context.user_data['upload_price'] = price
+    except ValueError:
         msg = "❌ እባክዎ በትክክል ቁጥር ብቻ ያስገቡ፦" if lang == "am" else ("❌ Maaloo lakkoofsa qofa galchaa:" if lang == "or" else "❌ Please enter a valid number only:")
         await update.message.reply_text(msg)
         return AWAITING_PRICE
@@ -324,6 +302,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.effective_user.id
     
+    # 🌐 የቋንቋ መቀያየሪያ ክፍሎች
     if text == "🇪🇹 አማርኛ":
         database.set_language(user_id, "am")
         await update.message.reply_text("ወደ ዋናው ማውጫ እንኳን በደህና መጡ!", reply_markup=ReplyKeyboardMarkup(am_main_keyboard, resize_keyboard=True))
@@ -339,21 +318,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lang = get_user_lang(user_id)
 
+    # 📚 መጻሕፍት ማውጫ ሲመረጥ
     if text in ["📚 መጻሕፍት", "📚 Kitaabota", "📚 Books"]:
         kb = am_cat_keyboard if lang == "am" else (or_cat_keyboard if lang == "or" else en_cat_keyboard)
         msg = "እባክዎ የይዘት ዘርፍ ይምረጡ፦" if lang == "am" else ("Maaloo gosa kitaboota arguu barbaaddan filadha:-" if lang == "or" else "Please select the content category:")
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         return
         
+    # ⬅️ ወደ ዋናው ማውጫ መመለሻ
     elif text in ["⬅️ ወደ ዋናው ማውጫ", "⬅️ Gara Menuu Gurguddaatti", "⬅️ Back to Main Menu"]:
         kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
         msg = "ወደ ዋናው ማውጫ ተመልሰዋል፦" if lang == "am" else ("Gara menuu gurguddaatti debi'aniittu:-" if lang == "or" else "Returned to Main Menu:")
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         return
 
-    # 🎯 ጽሑፉ በምን እንደሚያልቅ (endswith) ወይም ምን እንደያዘ (in) በማረጋገጥ የዳታቤዝ ካቴጎሪን መለየት
+    # 🎯 የካቴጎሪ ፍለጋ ማዛመጃ (በማናቸውም ቋንቋ ቢላክ ይለየዋል)
     db_category = None
-    if "Literature" in text or "ስነ-ጽሑፍ" in text or "ስነ-ጽሁፍ" in text or "Og-barruu" in text:
+    if "Literature" in text or "ስነ-ጽሁፍ" in text or "ስነ-ጽሑፍ" in text or "Og-barruu" in text:
         db_category = "Literature"
     elif "Education" in text or "ትምህርት" in text or "Barnoota" in text:
         db_category = "Education"
@@ -370,79 +351,57 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn = sqlite3.connect(DB_NAME)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT rowid, * FROM contents WHERE category = ? AND status = 'approved'", (db_category,))
+        
+        # የ 'status' ስህተትን ለመከላከል ሁለቱንም አማራጮች እንዲያካትት ተደርጓል
+        cursor.execute("SELECT rowid, * FROM contents WHERE category = ? AND (status = 'approved' OR status IS NULL OR status = '')", (db_category,))
         books = cursor.fetchall()
         conn.close()
         
         if not books:
-            msg = "በዚህ ዘርፍ መጽሐፍ የለም።" if lang == "am" else ("Gosa kanaan kitabni hin jiru." if lang == "or" else "No books in this category.")
+            if lang == "am": msg = f"😔 ይቅርታ፣ በዚህ ሰዓት በ'{text}' ዘርፍ የተጫነ መጽሐፍ የለም።"
+            elif lang == "or": msg = f"😔 Dardon, gosa kanaan '{text}' kitaabni argamu hin jiru."
+            else: msg = f"😔 Sorry, there are no books available in the '{text}' category right now."
             await update.message.reply_text(msg)
             return
 
+        # መጻሕፍት ከተገኙ ለተጠቃሚው ያሳያል
         for book in books:
             if lang == "am": 
                 caption = f"📚 **ርዕስ:** {book['title']}\n💰 **ዋጋ:** {book['price']} ETB\n📝 **መግለጫ:** {book['description']}"
-                btn_text = f"🛒 {book['title']}ን ግዛ"
+                btn_text = "💳 በ Chapa / Telebirr ክፈል"
             elif lang == "or": 
                 caption = f"📚 **Mata duree:** {book['title']}\n💰 **Gatii:** {book['price']} ETB\n📝 **Ibsa:** {book['description']}"
-                btn_text = f"🛒 {book['title']} Biti"
+                btn_text = "💳 Kaffaltii Raawwadhu"
             else: 
                 caption = f"📚 **Title:** {book['title']}\n💰 **Price:** {book['price']} ETB\n📝 **Description:** {book['description']}"
-                btn_text = f"🛒 Buy {book['title']}"
+                btn_text = "💳 Pay Now"
             
-            inline_kb = [[InlineKeyboardButton(btn_text, callback_data=f"checkout_{book['rowid']}")]]
+            inline_kb = [[InlineKeyboardButton(btn_text, callback_data=f"buy_{book['rowid']}")]]
             await update.message.reply_text(caption, reply_markup=InlineKeyboardMarkup(inline_kb), parse_mode="Markdown")
         return
 
-    # 🔍 ተጠቃሚው የመጽሐፍ ርዕስ ብቻውን በቴክስት ጽፎ ቢልክ (Case-Insensitive Match)
+    # 🔍 ተጠቃሚው የመጽሐፍ ርዕስ በቀጥታ ሲጽፍ (በስም የመፈለጊያ ክፍል)
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT rowid, * FROM contents WHERE LOWER(title) = LOWER(?) AND status = 'approved'", (text,))
+    cursor.execute("SELECT rowid, * FROM contents WHERE LOWER(title) = LOWER(?) AND (status = 'approved' OR status IS NULL OR status = '')", (text,))
     book = cursor.fetchone()
     conn.close()
 
     if book:
-        await show_checkout_summary(update, context, book, lang)
-        return
+        if lang == "am":
+            checkout_msg = f"🛒 **የመግዣ ማጠቃለያ**\n\n📚 **ርዕስ:** {book['title']}\n💰 **ዋጋ:** {book['price']} ETB\n📝 **መግለጫ:** {book['description']}\n\nይህንን መጽሐፍ ገዝተው በቅጽበት ለማውረድ ከታች ያለውን የክፍያ ቁልፍ ይጫኑ፦"
+            btn_text = "💳 በ Chapa / Telebirr ክፈል"
+        elif lang == "or":
+            checkout_msg = f"🛒 **Maamilummaa Bitataa**\n\n📚 **Mata duree:** {book['title']}\n💰 **Gatii:** {book['price']} ETB\n📝 **Ibsa:** {book['description']}\n\nKitaaba kana bitachuuf qabdoo gadii cuqaasaa:"
+            btn_text = "💳 Kaffaltii Raawwadhu"
+        else:
+            checkout_msg = f"🛒 **Purchase Order**\n\n📚 **Title:** {book['title']}\n💰 **Price:** {book['price']} ETB\n📝 **Description:** {book['description']}\n\nClick the button below to complete your purchase and download the book:"
+            btn_text = "💳 Pay Now"
 
-
-# ——— የቼክአውት ማጠቃለያ የሚያሳይ ረዳት ፋንክሽን ———
-async def show_checkout_summary(update, context, book, lang):
-    if lang == "am":
-        checkout_msg = (
-            f"🛒 **የመግዣ ማጠቃለያ**\n\n"
-            f"📚 **ርዕስ:** {book['title']}\n"
-            f"💰 **ዋጋ:** {book['price']} ETB\n"
-            f"📝 **መግለጫ:** {book['description']}\n\n"
-            f"ይህንን መጽሐፍ ገዝተው በቅጽበት ለማውረድ ከታች ያለውን የክፍያ ቁልፍ ይጫኑ፦"
-        )
-        btn_text = "💳 በ Chapa / Telebirr ክፈል"
-    elif lang == "or":
-        checkout_msg = (
-            f"🛒 **Maamilummaa Bitataa**\n\n"
-            f"📚 **Mata duree:** {book['title']}\n"
-            f"💰 **Gatii:** {book['price']} ETB\n"
-            f"📝 **Ibsa:** {book['description']}\n\n"
-            f"Kitaaba kana bitachuuf qabdoo gadii cuqaasaa:"
-        )
-        btn_text = "💳 Kaffaltii Raawwadhu"
-    else:
-        checkout_msg = (
-            f"🛒 **Purchase Order**\n\n"
-            f"📚 **Title:** {book['title']}\n"
-            f"💰 **Price:** {book['price']} ETB\n"
-            f"📝 **Description:** {book['description']}\n\n"
-            f"Click the button below to complete your purchase and download the book:"
-        )
-        btn_text = "💳 Pay Now"
-
-    keyboard = [[InlineKeyboardButton(btn_text, callback_data=f"buy_{book['rowid']}")]]
-    
-    if update.callback_query:
-        await update.callback_query.message.reply_text(checkout_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-    else:
+        keyboard = [[InlineKeyboardButton(btn_text, callback_data=f"buy_{book['rowid']}")]]
         await update.message.reply_text(checkout_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        return
 
 
 # =====================================================================
@@ -455,19 +414,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_lang(user_id)
     
-    if data.startswith("checkout_"):
-        row_id = data.split("_")[1]
-        conn = sqlite3.connect(DB_NAME)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute("SELECT rowid, * FROM contents WHERE rowid = ?", (row_id,))
-        book = cursor.fetchone()
-        conn.close()
-        
-        if book:
-            await show_checkout_summary(update, context, book, lang)
-            
-    elif data.startswith("buy_"):
+    if data.startswith("buy_"):
         row_id = data.split("_")[1]
         
         conn = sqlite3.connect(DB_NAME)
@@ -482,6 +429,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif lang == "or": await query.edit_message_text(f"⏳ Kaffaltii mirkaneessaa... maaloo eegaa...")
             else: await query.edit_message_text(f"⏳ Verifying payment... please wait...")
             
+            # ፋይሉን የመላክ ሂደት
             try:
                 file_path = book['file_path']
                 if os.path.exists(file_path):
@@ -503,6 +451,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
+    # 1. የደራሲያን ምዝገባ ማስተናገጃ
     reg_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^(✍️ ደራሲ መሆን እፈልጋለሁ|✍️ Barreessaa Ta'uu|✍️ Become an Author)$"), start_registration)],
         states={
@@ -512,10 +461,11 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel_reg)]
     )
     
+    # 2. የመጽሐፍ ጭነት ማስተናገጃ
     upload_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^(➕ አዲስ መጽሐፍ አክል|➕ Kitaaba Haaraa Gali|➕ Add New Book)$"), start_book_upload)],
         states={
-            AWAITING_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, start_book_upload)], # እዚህ ጋር ወደ ርዕስ መመለሻ አስተማማኝ እንዲሆን
+            AWAITING_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_title)],
             AWAITING_CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_category)],
             AWAITING_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_desc)],
             AWAITING_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_price)],
@@ -527,10 +477,10 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(reg_handler)
     app.add_handler(upload_handler)
-    app.add_handler(CallbackQueryHandler(handle_callback))
+    app.add_handler(CallbackQueryHandler(handle_callback)) 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Kitab Bot በተሳካ ሁኔታ ስራ ጀምሯል...")
+    print("Kitab Bot (የመጽሐፍ መግዣ Flow የተካተተበት) ተነስቷል...")
     app.run_polling()
 
 if __name__ == "__main__":
