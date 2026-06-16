@@ -52,7 +52,6 @@ or_cat_keyboard = [
     ["⬅️ Gara Menuu Gurguddaatti"]
 ]
 
-# 💡 በስክሪንሹቱ መሰረት የእንግሊዝኛ ካቴጎሪዎች ከትክክለኛው ኢሞጂ ጋር ተስተካክለዋል
 en_main_keyboard = [
     ["📚 Books", "📄 Handouts"],
     ["📝 Question Bank", "📁 Notes"],
@@ -202,22 +201,25 @@ async def save_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def save_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    user_id = update.effective_user.id
-    lang = get_user_lang(user_id)
+    text = update.message.text.strip()
     
-    # እዚህም ጋር ማዛመጃው አስተማማኝ እንዲሆን ተደርጓል
-    cat_map = {
-        "📖 ስነ-ጽሁፍ (Literature)": "Literature", "📖 ስነ-ጽሑፍ (Literature)": "Literature", 
-        "📖 Og-barruu (Literature)": "Literature", "📖 Literature": "Literature", "📖 Literature": "Literature",
-        "🎓 ትምህርት (Education)": "Education", "🎓 Barnoota (Education)": "Education", "🎓 Education": "Education", "🎓 Education": "Education",
-        "📖 ሃይማኖት (Religion)": "Religion", "📖 Amantiikaa (Religion)": "Religion", "📖 Religion": "Religion", "📖 Religion": "Religion",
-        "📜 ታሪክ (History)": "History", "📜 Seenaa (History)": "History", "📜 History": "History", "📜 History": "History",
-        "💼 ንግድ (Business)": "Business", "💼 Daldala (Business)": "Business", "💼 Business": "Business", "💼 Business": "Business",
-        "💻 ቴክኖሎጂ (Technology)": "Technology", "💻 Teeknoolojii (Technology)": "Technology", "💻 Technology": "Technology", "💻 Technology": "Technology"
-    }
-    
-    context.user_data['upload_cat'] = cat_map.get(text, "Literature")
+    # የትየባ ስህተትን ሙሉ በሙሉ ለመከላከል በስትሪንግ ፍለጋ ማዛመድ
+    db_cat = "Literature"
+    if "Literature" in text or "ስነ-ጽሑፍ" in text or "ስነ-ጽሁፍ" in text or "Og-barruu" in text:
+        db_cat = "Literature"
+    elif "Education" in text or "ትምህርት" in text or "Barnoota" in text:
+        db_cat = "Education"
+    elif "Religion" in text or "ሃይማኖት" in text or "Amantiikaa" in text:
+        db_cat = "Religion"
+    elif "History" in text or "ታሪክ" in text or "Seenaa" in text:
+        db_cat = "History"
+    elif "Business" in text or "ንግድ" in text or "Daldala" in text:
+        db_cat = "Business"
+    elif "Technology" in text or "ቴክኖሎጂ" in text or "Teeknoolojii" in text:
+        db_cat = "Technology"
+
+    context.user_data['upload_cat'] = db_cat
+    lang = get_user_lang(update.effective_user.id)
     
     msg = "📝 ስለ መጽሐፉ አጭር መግለጫ (Description) ይጻፉ፦" if lang == "am" else ("Maaloo ibsa kitaabaa gabaabaan barreessaa:" if lang == "or" else "Please write a short description of the book:")
     await update.message.reply_text(msg, reply_markup=ReplyKeyboardRemove())
@@ -333,48 +335,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         return
 
-    # 🔄 በሁሉም ቋንቋዎች ሊመጡ የሚችሉ የኢሞጂ ልዩነቶች (ከነኢሞጂው እና ያለ ኢሞጂው) እዚህ ተካተዋል
-    cat_map = {
-        # ስነ-ጽሁፍ
-        "📖 ስነ-ጽሁፍ (Literature)": "Literature", 
-        "📖 ስነ-ጽሑፍ (Literature)": "Literature", 
-        "📖 Og-barruu (Literature)": "Literature", 
-        "📖 Literature": "Literature",
-        "📖 Literature": "Literature",
-        
-        # ትምህርት
-        "🎓 ትምህርት (Education)": "Education", 
-        "🎓 Barnoota (Education)": "Education", 
-        "🎓 Education": "Education",
-        "🎓 Education": "Education",
-        
-        # ሃይማኖት
-        "📖 ሃይማኖት (Religion)": "Religion", 
-        "📖 Amantiikaa (Religion)": "Religion", 
-        "📖 Religion": "Religion",
-        "📖 Religion": "Religion",
-        
-        # ታሪክ
-        "📜 ታሪክ (History)": "History", 
-        "📜 Seenaa (History)": "History", 
-        "📜 History": "History",
-        "📜 History": "History",
-        
-        # ንግድ
-        "💼 ንግድ (Business)": "Business", 
-        "💼 Daldala (Business)": "Business", 
-        "💼 Business": "Business",
-        "💼 Business": "Business",
-        
-        # ቴክኖሎጂ
-        "💻 ቴክኖሎጂ (Technology)": "Technology", 
-        "💻 Teeknoolojii (Technology)": "Technology", 
-        "💻 Technology": "Technology",
-        "💻 Technology": "Technology"
-    }
+    # 🎯 ጽሑፉ በምን እንደሚያልቅ (endswith) ወይም ምን እንደያዘ (in) በማረጋገጥ የዳታቤዝ ካቴጎሪን መለየት
+    db_category = None
+    if "Literature" in text or "ስነ-ጽሑፍ" in text or "ስነ-ጽሁፍ" in text or "Og-barruu" in text:
+        db_category = "Literature"
+    elif "Education" in text or "ትምህርት" in text or "Barnoota" in text:
+        db_category = "Education"
+    elif "Religion" in text or "ሃይማኖት" in text or "Amantiikaa" in text:
+        db_category = "Religion"
+    elif "History" in text or "ታሪክ" in text or "Seenaa" in text:
+        db_category = "History"
+    elif "Business" in text or "ንግድ" in text or "Daldala" in text:
+        db_category = "Business"
+    elif "Technology" in text or "ቴክኖሎጂ" in text or "Teeknoolojii" in text:
+        db_category = "Technology"
 
-    if text in cat_map:
-        db_category = cat_map[text]
+    if db_category:
         conn = sqlite3.connect(DB_NAME)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -463,7 +439,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_lang(user_id)
     
-    # 1. ከመጽሐፍ ዝርዝር ስር ያለውን Inline ቁልፍ ሲጫን
     if data.startswith("checkout_"):
         row_id = data.split("_")[1]
         conn = sqlite3.connect(DB_NAME)
@@ -476,7 +451,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if book:
             await show_checkout_summary(update, context, book, lang)
             
-    # 2. ከማጠቃለያው ስር ያለውን "ክፈል" ቁልፍ ሲጫን
     elif data.startswith("buy_"):
         row_id = data.split("_")[1]
         
@@ -513,7 +487,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # 1. የደራሲያን ምዝገባ ማስተናገጃ
     reg_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^(✍️ ደራሲ መሆን እፈልጋለሁ|✍️ Barreessaa Ta'uu|✍️ Become an Author)$"), start_registration)],
         states={
@@ -523,11 +496,10 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel_reg)]
     )
     
-    # 2. የመጽሐፍ ጭነት ማስተናገጃ
     upload_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^(➕ አዲስ መጽሐፍ አክል|➕ Kitaaba Haaraa Gali|➕ Add New Book)$"), start_book_upload)],
         states={
-            AWAITING_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_title)],
+            AWAITING_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, start_book_upload)], # እዚህ ጋር ወደ ርዕስ መመለሻ አስተማማኝ እንዲሆን
             AWAITING_CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_category)],
             AWAITING_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_desc)],
             AWAITING_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_price)],
