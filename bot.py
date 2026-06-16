@@ -31,8 +31,9 @@ am_main_keyboard = [
     ["🔍 ፈልግ (Search)", "📁 የእኔ ላይብረሪ"],
     ["✍️ ደራሲ መሆን እፈልጋለሁ", "➕ አዲስ መጽሐፍ አክል", "☎️ እርዳታ"]
 ]
+# 💡 በስክሪንሹቱ መሰረት "ስነ-ጽሑፍ" በሚለው ትክክለኛ ፊደል ተስተካክሏል
 am_cat_keyboard = [
-    ["📖 ስነ-ጽሁፍ (Literature)", "🎓 ትምህርት (Education)"],
+    ["📖 ስነ-ጽሑፍ (Literature)", "🎓 ትምህርት (Education)"],
     ["📖 ሃይማኖት (Religion)", "📜 ታሪክ (History)"],
     ["💼 ንግድ (Business)", "💻 ቴክኖሎጂ (Technology)"],
     ["⬅️ ወደ ዋናው ማውጫ"]
@@ -205,7 +206,8 @@ async def save_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_user_lang(user_id)
     
     cat_map = {
-        "📖 ስነ-ጽሁፍ (Literature)": "Literature", "📖 Og-barruu (Literature)": "Literature", "📖 Literature": "Literature",
+        "📖 ስነ-ጽሁፍ (Literature)": "Literature", "📖 ስነ-ጽሑፍ (Literature)": "Literature", 
+        "📖 Og-barruu (Literature)": "Literature", "📖 Literature": "Literature",
         "🎓 ትምህርት (Education)": "Education", "🎓 Barnoota (Education)": "Education", "🎓 Education": "Education",
         "📖 ሃይማኖት (Religion)": "Religion", "📖 Amantiikaa (Religion)": "Religion", "📖 Religion": "Religion",
         "📜 ታሪክ (History)": "History", "📜 Seenaa (History)": "History", "📜 History": "History",
@@ -299,7 +301,7 @@ async def cancel_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 🔄 አጠቃላይ የመልዕክት ማስተናገጃ (GENERAL MESSAGE HANDLER)
 # =====================================================================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
+    text = update.message.text.strip()
     user_id = update.effective_user.id
     
     if text == "🇪🇹 አማርኛ":
@@ -329,13 +331,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         return
 
+    # 🔄 ሁለቱንም የ "ሁ" እና "ሑ" አማራጮችን እዚህ ጋር አዛምደናል
     cat_map = {
-        "📖 ስነ-ጽሁፍ (Literature)": "Literature", "📖 Og-barruu (Literature)": "Literature", "📖 Literature": "Literature",
-        "🎓 ትምህርት (Education)": "Education", "🎓 Barnoota (Education)": "Education", "🎓 Education": "Education",
-        "📖 ሃይማኖት (Religion)": "Religion", "📖 Amantiikaa (Religion)": "Religion", "📖 Religion": "Religion",
-        "📜 ታሪክ (History)": "History", "📜 Seenaa (History)": "History", "📜 History": "History",
-        "💼 ንግድ (Business)": "Business", "💼 Daldala (Business)": "Business", "💼 Business": "Business",
-        "💻 ቴክኖሎጂ (Technology)": "Technology", "💻 Teeknoolojii (Technology)": "Technology", "💻 Technology": "Technology"
+        "📖 ስነ-ጽሁፍ (Literature)": "Literature", 
+        "📖 ስነ-ጽሑፍ (Literature)": "Literature", 
+        "📖 Og-barruu (Literature)": "Literature", 
+        "📖 Literature": "Literature",
+        
+        "🎓 ትምህርት (Education)": "Education", 
+        "🎓 Barnoota (Education)": "Education", 
+        "🎓 Education": "Education",
+        
+        "📖 ሃይማኖት (Religion)": "Religion", 
+        "📖 Amantiikaa (Religion)": "Religion", 
+        "📖 Religion": "Religion",
+        
+        "📜 ታሪክ (History)": "History", 
+        "📜 Seenaa (History)": "History", 
+        "📜 History": "History",
+        
+        "💼 ንግድ (Business)": "Business", 
+        "💼 Daldala (Business)": "Business", 
+        "💼 Business": "Business",
+        
+        "💻 ቴክኖሎጂ (Technology)": "Technology", 
+        "💻 Teeknoolojii (Technology)": "Technology", 
+        "💻 Technology": "Technology"
     }
 
     if text in cat_map:
@@ -368,11 +389,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # 🔍 ተጠቃሚው የመጽሐፍ ርዕስ ብቻውን በቴክስት ጽፎ ቢልክ (Case-Insensitive Match)
-    search_title = text.strip()
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT rowid, * FROM contents WHERE LOWER(title) = LOWER(?) AND status = 'approved'", (search_title,))
+    cursor.execute("SELECT rowid, * FROM contents WHERE LOWER(title) = LOWER(?) AND status = 'approved'", (text,))
     book = cursor.fetchone()
     conn.close()
 
