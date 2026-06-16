@@ -31,7 +31,7 @@ am_main_keyboard = [
     ["🔍 ፈልግ (Search)", "📁 የእኔ ላይብረሪ"],
     ["✍️ ደራሲ መሆን እፈልጋለሁ", "➕ አዲስ መጽሐፍ አክል", "☎️ እርዳታ"]
 ]
-# 💡 በስክሪንሹቱ መሰረት "ስነ-ጽሑፍ" በሚለው ትክክለኛ ፊደል ተስተካክሏል
+
 am_cat_keyboard = [
     ["📖 ስነ-ጽሑፍ (Literature)", "🎓 ትምህርት (Education)"],
     ["📖 ሃይማኖት (Religion)", "📜 ታሪክ (History)"],
@@ -52,6 +52,7 @@ or_cat_keyboard = [
     ["⬅️ Gara Menuu Gurguddaatti"]
 ]
 
+# 💡 በስክሪንሹቱ መሰረት የእንግሊዝኛ ካቴጎሪዎች ከትክክለኛው ኢሞጂ ጋር ተስተካክለዋል
 en_main_keyboard = [
     ["📚 Books", "📄 Handouts"],
     ["📝 Question Bank", "📁 Notes"],
@@ -205,14 +206,15 @@ async def save_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_lang(user_id)
     
+    # እዚህም ጋር ማዛመጃው አስተማማኝ እንዲሆን ተደርጓል
     cat_map = {
         "📖 ስነ-ጽሁፍ (Literature)": "Literature", "📖 ስነ-ጽሑፍ (Literature)": "Literature", 
-        "📖 Og-barruu (Literature)": "Literature", "📖 Literature": "Literature",
-        "🎓 ትምህርት (Education)": "Education", "🎓 Barnoota (Education)": "Education", "🎓 Education": "Education",
-        "📖 ሃይማኖት (Religion)": "Religion", "📖 Amantiikaa (Religion)": "Religion", "📖 Religion": "Religion",
-        "📜 ታሪክ (History)": "History", "📜 Seenaa (History)": "History", "📜 History": "History",
-        "💼 ንግድ (Business)": "Business", "💼 Daldala (Business)": "Business", "💼 Business": "Business",
-        "💻 ቴክኖሎጂ (Technology)": "Technology", "💻 Teeknoolojii (Technology)": "Technology", "💻 Technology": "Technology"
+        "📖 Og-barruu (Literature)": "Literature", "📖 Literature": "Literature", "📖 Literature": "Literature",
+        "🎓 ትምህርት (Education)": "Education", "🎓 Barnoota (Education)": "Education", "🎓 Education": "Education", "🎓 Education": "Education",
+        "📖 ሃይማኖት (Religion)": "Religion", "📖 Amantiikaa (Religion)": "Religion", "📖 Religion": "Religion", "📖 Religion": "Religion",
+        "📜 ታሪክ (History)": "History", "📜 Seenaa (History)": "History", "📜 History": "History", "📜 History": "History",
+        "💼 ንግድ (Business)": "Business", "💼 Daldala (Business)": "Business", "💼 Business": "Business", "💼 Business": "Business",
+        "💻 ቴክኖሎጂ (Technology)": "Technology", "💻 Teeknoolojii (Technology)": "Technology", "💻 Technology": "Technology", "💻 Technology": "Technology"
     }
     
     context.user_data['upload_cat'] = cat_map.get(text, "Literature")
@@ -331,31 +333,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         return
 
-    # 🔄 ሁለቱንም የ "ሁ" እና "ሑ" አማራጮችን እዚህ ጋር አዛምደናል
+    # 🔄 በሁሉም ቋንቋዎች ሊመጡ የሚችሉ የኢሞጂ ልዩነቶች (ከነኢሞጂው እና ያለ ኢሞጂው) እዚህ ተካተዋል
     cat_map = {
+        # ስነ-ጽሁፍ
         "📖 ስነ-ጽሁፍ (Literature)": "Literature", 
         "📖 ስነ-ጽሑፍ (Literature)": "Literature", 
         "📖 Og-barruu (Literature)": "Literature", 
         "📖 Literature": "Literature",
+        "📖 Literature": "Literature",
         
+        # ትምህርት
         "🎓 ትምህርት (Education)": "Education", 
         "🎓 Barnoota (Education)": "Education", 
         "🎓 Education": "Education",
+        "🎓 Education": "Education",
         
+        # ሃይማኖት
         "📖 ሃይማኖት (Religion)": "Religion", 
         "📖 Amantiikaa (Religion)": "Religion", 
         "📖 Religion": "Religion",
+        "📖 Religion": "Religion",
         
+        # ታሪክ
         "📜 ታሪክ (History)": "History", 
         "📜 Seenaa (History)": "History", 
         "📜 History": "History",
+        "📜 History": "History",
         
+        # ንግድ
         "💼 ንግድ (Business)": "Business", 
         "💼 Daldala (Business)": "Business", 
         "💼 Business": "Business",
+        "💼 Business": "Business",
         
+        # ቴክኖሎጂ
         "💻 ቴክኖሎጂ (Technology)": "Technology", 
         "💻 Teeknoolojii (Technology)": "Technology", 
+        "💻 Technology": "Technology",
         "💻 Technology": "Technology"
     }
 
