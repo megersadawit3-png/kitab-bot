@@ -128,7 +128,7 @@ async def save_bio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = "በጣም ጥሩ! አሁን ደግሞ ለክፍያ የሚሆን ስልክ ቁጥርዎን ያስገቡ ወይም ያጋሩን፦"
     elif lang == "or":
         phone_btn = [[KeyboardButton("📲 Lakkoofsa Bilbilaa Agarsiisi", request_contact=True)]]
-        msg = "Gaarii dha! Amma ammoo kaffaltii fi qunnamtiidhaaf lakkoofsa bilbila keessan nuu ergaa:"
+        msg = "Gaarii dhamma! Amma ammoo kaffaltii fi qunnamtiidhaaf lakkoofsa bilbila keessan nuu ergaa:"
     else:
         phone_btn = [[KeyboardButton("📲 Share Phone Number", request_contact=True)]]
         msg = "Great! Now please enter or share your phone number for payments:"
@@ -205,12 +205,25 @@ async def save_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_user_lang(user_id)
     
     cat_map = {
-        "📖 ስነ-ጽሁፍ (Literature)": "Literature", "📖 ስነ-ጽሑፍ (Literature)": "Literature", "📖 Og-barruu (Literature)": "Literature", "📖 Literature": "Literature",
-        "🎓 ትምህርት (Education)": "Education", "🎓 Barnoota (Education)": "Education", "🎓 Education": "Education",
-        "📖 ሃይማኖት (Religion)": "Religion", "📖 Amantiikaa (Religion)": "Religion", "📖 Religion": "Religion",
-        "📜 ታሪክ (History)": "History", "📜 Seenaa (History)": "History", "📜 History": "History",
-        "💼 ንግድ (Business)": "Business", "💼 Daldala (Business)": "Business", "💼 Business": "Business",
-        "💻 ቴክኖሎጂ (Technology)": "Technology", "💻 Teeknoolojii (Technology)": "Technology", "💻 Technology": "Technology"
+        "📖 ስነ-ጽሁፍ (Literature)": "Literature", 
+        "📖 ስነ-ጽሑፍ (Literature)": "Literature", 
+        "📖 Og-barruu (Literature)": "Literature", 
+        "📖 Literature": "Literature",
+        "🎓 ትምህርት (Education)": "Education", 
+        "🎓 Barnoota (Education)": "Education", 
+        "🎓 Education": "Education",
+        "📖 ሃይማኖት (Religion)": "Religion", 
+        "📖 Amantiikaa (Religion)": "Religion", 
+        "📖 Religion": "Religion",
+        "📜 ታሪክ (History)": "History", 
+        "📜 Seenaa (History)": "History", 
+        "📜 History": "History",
+        "💼 ንግድ (Business)": "Business", 
+        "💼 Daldala (Business)": "Business", 
+        "💼 Business": "Business",
+        "💻 ቴክኖሎጂ (Technology)": "Technology", 
+        "💻 Teeknoolojii (Technology)": "Technology", 
+        "💻 Technology": "Technology"
     }
     
     context.user_data['upload_cat'] = cat_map.get(text, "Literature")
@@ -271,9 +284,10 @@ async def save_file_and_finish(update: Update, context: ContextTypes.DEFAULT_TYP
     
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    # እዚህ ጋር በዳታቤዝህ ዲፎልት 'pending' ስለሚሆን በቀጥታ እናስገባዋለን
     cursor.execute("""
-        INSERT INTO contents (author_id, title, category, description, price, file_path, status)
-        VALUES (?, ?, ?, ?, ?, ?, 'approved')
+        INSERT INTO contents (author_id, title, category, description, price, file_path)
+        VALUES (?, ?, ?, ?, ?, ?)
     """, (user_id, title, category, desc, price, file_path))
     conn.commit()
     conn.close()
@@ -332,7 +346,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         return
 
-    # 🎯 የካቴጎሪ ፍለጋ ማዛመጃ (በማናቸውም ቋንቋ ቢላክ ይለየዋል)
+    # 🎯 የካቴጎሪ ፍለጋ ማዛመጃ 
     db_category = None
     if "Literature" in text or "ስነ-ጽሁፍ" in text or "ስነ-ጽሑፍ" in text or "Og-barruu" in text:
         db_category = "Literature"
@@ -352,8 +366,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # የ 'status' ስህተትን ለመከላከል ሁለቱንም አማራጮች እንዲያካትት ተደርጓል
-        cursor.execute("SELECT rowid, * FROM contents WHERE category = ? AND (status = 'approved' OR status IS NULL OR status = '')", (db_category,))
+        # 🔑 ዋናው ማስተካከያ፡ 'pending' የሆኑትን አዳዲስ መጻሕፍትም ጭምር እንዲያወጣ ተደርጓል!
+        cursor.execute("""
+            SELECT id, title, description, price, file_path 
+            FROM contents 
+            WHERE category = ? AND (status = 'approved' OR status = 'pending')
+        """, (db_category,))
         books = cursor.fetchall()
         conn.close()
         
@@ -376,15 +394,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 caption = f"📚 **Title:** {book['title']}\n💰 **Price:** {book['price']} ETB\n📝 **Description:** {book['description']}"
                 btn_text = "💳 Pay Now"
             
-            inline_kb = [[InlineKeyboardButton(btn_text, callback_data=f"buy_{book['rowid']}")]]
+            inline_kb = [[InlineKeyboardButton(btn_text, callback_data=f"buy_{book['id']}")]]
             await update.message.reply_text(caption, reply_markup=InlineKeyboardMarkup(inline_kb), parse_mode="Markdown")
         return
 
-    # 🔍 ተጠቃሚው የመጽሐፍ ርዕስ በቀጥታ ሲጽፍ (በስም የመፈለጊያ ክፍል)
+    # 🔍 በስም መፈለጊያ ክፍል
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT rowid, * FROM contents WHERE LOWER(title) = LOWER(?) AND (status = 'approved' OR status IS NULL OR status = '')", (text,))
+    cursor.execute("SELECT id, * FROM contents WHERE LOWER(title) = LOWER(?) AND (status = 'approved' OR status = 'pending')", (text,))
     book = cursor.fetchone()
     conn.close()
 
@@ -399,7 +417,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             checkout_msg = f"🛒 **Purchase Order**\n\n📚 **Title:** {book['title']}\n💰 **Price:** {book['price']} ETB\n📝 **Description:** {book['description']}\n\nClick the button below to complete your purchase and download the book:"
             btn_text = "💳 Pay Now"
 
-        keyboard = [[InlineKeyboardButton(btn_text, callback_data=f"buy_{book['rowid']}")]]
+        keyboard = [[InlineKeyboardButton(btn_text, callback_data=f"buy_{book['id']}")]]
         await update.message.reply_text(checkout_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
 
@@ -420,7 +438,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn = sqlite3.connect(DB_NAME)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM contents WHERE rowid = ?", (row_id,))
+        cursor.execute("SELECT * FROM contents WHERE id = ?", (row_id,))
         book = cursor.fetchone()
         conn.close()
         
@@ -429,7 +447,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif lang == "or": await query.edit_message_text(f"⏳ Kaffaltii mirkaneessaa... maaloo eegaa...")
             else: await query.edit_message_text(f"⏳ Verifying payment... please wait...")
             
-            # ፋይሉን የመላክ ሂደት
             try:
                 file_path = book['file_path']
                 if os.path.exists(file_path):
@@ -439,7 +456,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         
                     await context.bot.send_document(chat_id=user_id, document=open(file_path, 'rb'))
                 else:
-                    if lang == "am": await context.bot.send_message(chat_id=user_id, text="❌ ይቅርታ፣ የመጽሐፉ ፋይል በሴርቨሩ ላይ አልተገኘም።")
+                    if lang == "am": await context.bot.send_message(chat_id=user_id, text="❌ ይቅርታ፣ የመጽሐፉ ፋይል በሲስተሙ ላይ አልተገኘም።")
                     else: await context.bot.send_message(chat_id=user_id, text="❌ Sorry, the book file was not found on the server.")
             except Exception as e:
                 logging.error(f"Error sending file: {e}")
@@ -451,7 +468,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # 1. የደራሲያን ምዝገባ ማስተናገጃ
     reg_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^(✍️ ደራሲ መሆን እፈልጋለሁ|✍️ Barreessaa Ta'uu|✍️ Become an Author)$"), start_registration)],
         states={
@@ -461,7 +477,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel_reg)]
     )
     
-    # 2. የመጽሐፍ ጭነት ማስተናገጃ
     upload_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^(➕ አዲስ መጽሐፍ አክል|➕ Kitaaba Haaraa Gali|➕ Add New Book)$"), start_book_upload)],
         states={
@@ -480,7 +495,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback)) 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Kitab Bot (የመጽሐፍ መግዣ Flow የተካተተበት) ተነስቷል...")
+    print("Kitab Bot ከተስተካከለ የዳታቤዝ ፍለጋ ጋር ተነስቷል...")
     app.run_polling()
 
 if __name__ == "__main__":
