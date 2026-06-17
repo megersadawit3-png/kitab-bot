@@ -11,7 +11,7 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler
 )
-from config import BOT_TOKEN, DB_NAME
+from config import BOT_TOKEN, DB_NAME, ADMIN_ID  # 👑 ADMIN_ID ከ config እንዲመጣ ተደርጓል
 import database
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -94,6 +94,55 @@ def is_user_author(telegram_id):
     row = cursor.fetchone()
     conn.close()
     return row is not None
+
+
+# =====================================================================
+# 👑 የአድሚን መቆጣጠሪያ ክፍል (ADMIN PANEL FUNCTIONS)
+# =====================================================================
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # አድሚን መሆኑን ማረጋገጫ
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("❌ ይህንን ትዕዛዝ ለመጠቀም ፈቃድ የለዎትም!")
+        return
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT COUNT(*) FROM contents WHERE status = 'pending'")
+    pending_books = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM authors WHERE status = 'pending'")
+    pending_authors = cursor.fetchone()[0]
+    conn.close()
+
+    msg = (
+        "👑 **የኪታብ ማርኬትፕሌስ አድሚን ፓነል**\n\n"
+        f"📝 በግምገማ ላይ ያሉ መጻሕፍት፡ **{pending_books}**\n"
+        f"✍️ በግምገማ ላይ ያሉ ደራሲያን፡ **{pending_authors}**\n\n"
+        "አዲስ ይዘት ሲጫን ቦቱ በቀጥታ ማሳወቂያ እዚህ ያቀርብልዎታል።"
+    )
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
+async def notify_admin_new_book(bot, book_id, title, price):
+    msg = (
+        "🔔 **አዲስ መጽሐፍ ለግምገማ ቀርቧል!**\n\n"
+        f"📚 **ርዕስ:** {title}\n"
+        f"💰 **ዋጋ:** {price} ETB\n\n"
+        "እባክዎ ይህ መጽሐፍ ለገበያ እንዲበቃ ይፍቀዱ ወይም ይከልክሉ፦"
+    )
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ ፍቀድ (Approve)", callback_data=f"approve_book_{book_id}"),
+            InlineKeyboardButton("❌ ከልክል (Reject)", callback_data=f"reject_book_{book_id}")
+        ]
+    ]
+    try:
+        await bot.send_message(chat_id=ADMIN_ID, text=msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    except Exception as e:
+        logging.error(f"Failed to notify admin: {e}")
 
 
 # =====================================================================
@@ -284,18 +333,25 @@ async def save_file_and_finish(update: Update, context: ContextTypes.DEFAULT_TYP
     
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    # እዚህ ጋር በዳታቤዝህ ዲፎልት 'pending' ስለሚሆን በቀጥታ እናስገባዋለን
     cursor.execute("""
         INSERT INTO contents (author_id, title, category, description, price, file_path)
         VALUES (?, ?, ?, ?, ?, ?)
     """, (user_id, title, category, desc, price, file_path))
+    
+    # አድሚኑን ለማሳወቅ የገባበትን የመጨረሻ ID እንይዛለን
+    cursor.execute("SELECT last_insert_rowid()")
+    inserted_id = cursor.fetchone()[0]
+    
     conn.commit()
     conn.close()
     
+    # 👑 ለአድሚኑ አዲስ መጽሐፍ መጫኑን ማሳወቅ
+    await notify_admin_new_book(context.bot, inserted_id, title, price)
+    
     kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
-    if lang == "am": await update.message.reply_text("🎉 መጽሐፍዎ በተሳካ ሁኔታ ተጭኗል! አሁን በካቴጎሪው ውስጥ ማግኘት ይቻላል።", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
-    elif lang == "or": await update.message.reply_text("🎉 Kitaabni keessan milkiyn galeera! Amma argachuun ni danda'ama.", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
-    else: await update.message.reply_text("🎉 Your book has been uploaded successfully! It is now available in its category.", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+    if lang == "am": await update.message.reply_text("🎉 መጽሐፍዎ በተሳካ ሁኔታ ተጭኗል! በአድሚን ተገምግሞ ሲጸድቅ ለሽያጭ ይበቃል፡፡", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+    elif lang == "or": await update.message.reply_text("🎉 Kitaabni keessan milkiyn galeera! Erga admin mirkaneesseen booda gabaaf dhiyaata.", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+    else: await update.message.reply_text("🎉 Your book has been uploaded successfully! It will be available for sale after admin approval.", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
     
     return ConversationHandler.END
 
@@ -366,11 +422,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # 🔑 ዋናው ማስተካከያ፡ 'pending' የሆኑትን አዳዲስ መጻሕፍትም ጭምር እንዲያወጣ ተደርጓል!
+        # 🔑 ለተጠቃሚዎች የሚታዩት የጸደቁት (approved) ብቻ እንዲሆኑ ደህንነቱ ተጠብቋል
         cursor.execute("""
             SELECT id, title, description, price, file_path 
             FROM contents 
-            WHERE category = ? AND (status = 'approved' OR status = 'pending')
+            WHERE category = ? AND status = 'approved'
         """, (db_category,))
         books = cursor.fetchall()
         conn.close()
@@ -402,7 +458,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute("SELECT id, * FROM contents WHERE LOWER(title) = LOWER(?) AND (status = 'approved' OR status = 'pending')", (text,))
+    cursor.execute("SELECT id, * FROM contents WHERE LOWER(title) = LOWER(?) AND status = 'approved'", (text,))
     book = cursor.fetchone()
     conn.close()
 
@@ -423,7 +479,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =====================================================================
-# 💳 የክፍያ እና ፋይል ማድረሻ ማስተናገጃ (CALLBACK QUERY HANDLER)
+# 💳 የክፍያ እና የአድሚን ውሳኔዎች ማስተናገጃ (CALLBACK QUERY HANDLER)
 # =====================================================================
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -432,6 +488,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = get_user_lang(user_id)
     
+    # 🛒 የመጽሐፍ መግዣ በተን ሲጫን
     if data.startswith("buy_"):
         row_id = data.split("_")[1]
         
@@ -460,6 +517,48 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     else: await context.bot.send_message(chat_id=user_id, text="❌ Sorry, the book file was not found on the server.")
             except Exception as e:
                 logging.error(f"Error sending file: {e}")
+
+    # 👑 አድሚኑ መጽሐፍ ሲያጸድቅ (Approve Book)
+    elif data.startswith("approve_book_"):
+        book_id = data.split("_")[2]
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE contents SET status = 'approved' WHERE id = ?", (book_id,))
+        cursor.execute("SELECT author_id, title FROM contents WHERE id = ?", (book_id,))
+        res = cursor.fetchone()
+        conn.commit()
+        conn.close()
+        
+        await query.edit_message_text("✅ መጽሐፉ በተሳካ ሁኔታ ጽድቋል! አሁን ለሁሉም ተጠቃሚዎች ይታያል።")
+        if res:
+            author_id, book_title = res[0], res[1]
+            author_lang = get_user_lang(author_id)
+            if author_lang == "am": auth_msg = f"🎉 እንኳን ደስ አለዎት! '{book_title}' የተሰኘው መጽሐፍዎ በአድሚን ተገምግሞ ጽድቋል።"
+            elif author_lang == "or": auth_msg = f"🎉 Baga gammaddan! Kitaabni keessan '{book_title}' adminiin mirkanaayeera."
+            else: auth_msg = f"🎉 Congratulations! Your book '{book_title}' has been approved by the admin."
+            try: await context.bot.send_message(chat_id=author_id, text=auth_msg)
+            except: pass
+
+    # 👑 አድሚኑ መጽሐፍ ሲከለክል (Reject Book)
+    elif data.startswith("reject_book_"):
+        book_id = data.split("_")[2]
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE contents SET status = 'rejected' WHERE id = ?", (book_id,))
+        cursor.execute("SELECT author_id, title FROM contents WHERE id = ?", (book_id,))
+        res = cursor.fetchone()
+        conn.commit()
+        conn.close()
+        
+        await query.edit_message_text("❌ መጽሐፉ ውድቅ (Rejected) ተደርጓል።")
+        if res:
+            author_id, book_title = res[0], res[1]
+            author_lang = get_user_lang(author_id)
+            if author_lang == "am": auth_msg = f"😔 ይቅርታ፣ '{book_title}' የተሰኘው መጽሐፍዎ በሕግና ደንብ ምክንያት በአድሚን ውድቅ ተደርጓል።"
+            elif author_lang == "or": auth_msg = f"😔 Gammachuun, kitaabni keessan '{book_title}' sababa seeraatiin adminiin fudhatama hin arganne."
+            else: auth_msg = f"😔 Sorry, your book '{book_title}' has been rejected by the admin due to guidelines."
+            try: await context.bot.send_message(chat_id=author_id, text=auth_msg)
+            except: pass
 
 
 # =====================================================================
@@ -490,12 +589,13 @@ def main():
     )
     
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_panel))  # 👑 የአድሚን ትዕዛዝ እዚህ ተመዝግቧል
     app.add_handler(reg_handler)
     app.add_handler(upload_handler)
     app.add_handler(CallbackQueryHandler(handle_callback)) 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Kitab Bot ከተስተካከለ የዳታቤዝ ፍለጋ ጋር ተነስቷል...")
+    print("Kitab Bot ከአድሚን መቆጣጠሪያ ፓነል ጋር በተሳካ ሁኔታ ተነስቷል...")
     app.run_polling()
 
 if __name__ == "__main__":
