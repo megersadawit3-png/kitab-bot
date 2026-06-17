@@ -360,7 +360,7 @@ async def save_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = get_user_lang(user_id)
     
     cat_map = {
-        "📖 ስነ-ጽሁф (Literature)": "Literature", "📖 ስነ-ጽሑፍ (Literature)": "Literature", "📖 Og-barruu (Literature)": "Literature", "📖 Literature": "Literature",
+        "📖 ስነ-ጽሁፍ (Literature)": "Literature", "📖 ስነ-ጽሑፍ (Literature)": "Literature", "📖 Og-barruu (Literature)": "Literature", "📖 Literature": "Literature",
         "🎓 ትምህርት (Education)": "Education", "🎓 Barnoota (Education)": "Education", "🎓 Education": "Education",
         "📖 ሃይማኖት (Religion)": "Religion", "📖 Amantiikaa (Religion)": "Religion", "📖 Religion": "Religion",
         "📜 ታሪክ (History)": "History", "📜 Seenaa (History)": "History", "📜 History": "History",
@@ -647,7 +647,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         book_id = data.split("_")[2]
         context.user_data['buying_book_id'] = book_id
         await context.bot.send_message(chat_id=user_id, text="📝 እባክዎ የቴሌብር የግብይት መለያ (Transaction Reference ቁጥር) ብቻ ይጻፉልኝ፦")
-        # ⚠️ ማስታወሻ፡ ውይይቱን ወደ ConversationHandler ለማስተላለፍ 'telebirr_manual_handler' መስመር ላይ ይገባል።
+        # ወደ ውይይት ደረጃ ማሳለፍ
+        context.user_data['state'] = AWAITING_TELEBIRR_REF
 
     elif data.startswith("download_"):
         content_id = data.split("_")[1]
@@ -754,7 +755,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
     search_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^(🔍 ፈልግ \(Search\)|🔍 Barbaadi \(Search\)|🔍 Search)$"), start_search)],
+        entry_points=[MessageHandler(filters.Regex(r"^(🔍 ፈልግ \(Search\)|🔍 Barbaadi \(Search\)|🔍 Search)$"), start_search)],
         states={AWAITING_SEARCH_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, execute_search)]},
         fallbacks=[]
     )
@@ -800,4 +801,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
