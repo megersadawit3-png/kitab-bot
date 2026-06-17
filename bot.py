@@ -23,7 +23,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 AWAITING_BIO, AWAITING_PHONE = range(2)
 AWAITING_TITLE, AWAITING_CATEGORY, AWAITING_DESC, AWAITING_PRICE, AWAITING_FILE = range(10, 15)
 AWAITING_SEARCH_QUERY = range(20, 21)
-AWAITING_TELEBIRR_REF = range(30, 31)
+AWAITING_TELEBIRR_REF = "AWAITING_TELEBIRR_REF"  # ለቀጥታ ግብረ-መልስ ወደ ስትሪንግ ተቀይሯል
 
 # =====================================================================
 # ⌨️ የሁሉም ቋንቋዎች ኪቦርዶች (KEYBOARDS)
@@ -490,10 +490,13 @@ async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYP
     book_id = context.user_data.get('buying_book_id')
     kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
     
+    # የደረሰኝ ቁጥሩ ሲመጣ የስራ ደረጃውን (State) እናጽዳው
+    context.user_data['state'] = None
+    
     book = get_content_by_id(book_id)
     if not book:
         await update.message.reply_text("❌ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
-        return ConversationHandler.END
+        return
 
     add_order(user_id, book['id'], book['price'], payment_ref=ref_text, status="pending")
     
@@ -514,7 +517,6 @@ async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYP
 
     reply_msg = "🙏 ማረጋገጫዎ ለአድሚን ተልኳል! ክፍያዎ ተረጋግጦ ሲጸድቅ ፋይሉ በቅጽበት ይላክልዎታል።" if lang == "am" else "🎉 Kaffaltiin keessan adminiif ergameera! Erga mirkanaa'uun booda faayiliin isiniif ergama."
     await update.message.reply_text(reply_msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
-    return ConversationHandler.END
 
 # =====================================================================
 # 📁 የእኔ ላይብረሪ (MY LIBRARY SYSTEM)
@@ -542,6 +544,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.effective_user.id
     
+    # 📌 ቼክ፦ ተጠቃሚው Chapa/Telebirr ደረሰኝ ቁጥር እየላከ ከሆነ (የምስሉን ስህተት የሚፈታው)
+    if context.user_data.get('state') == AWAITING_TELEBIRR_REF:
+        await process_telebirr_ref(update, context)
+        return
+
     if text == "🇪🇹 አማርኛ":
         set_user_lang(user_id, "am")
         await update.message.reply_text("ወደ ዋናው ማውጫ እንኳን በደህና መጡ!", reply_markup=ReplyKeyboardMarkup(am_main_keyboard, resize_keyboard=True))
@@ -646,9 +653,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("submit_ref_"):
         book_id = data.split("_")[2]
         context.user_data['buying_book_id'] = book_id
-        await context.bot.send_message(chat_id=user_id, text="📝 እባክዎ የቴሌብር የግብይት መለያ (Transaction Reference ቁጥር) ብቻ ይጻፉልኝ፦")
-        # ወደ ውይይት ደረጃ ማሳለፍ
+        # ተጠቃሚው የሚጽፈውን ቁጥር ለመያዝ የስራ ደረጃ (state) ምልክት እናስቀምጥ
         context.user_data['state'] = AWAITING_TELEBIRR_REF
+        await context.bot.send_message(chat_id=user_id, text="📝 እባክዎ የቴሌብር የግብይት መለያ (Transaction Reference ቁጥር) ብቻ ይጻፉልኝ፦")
 
     elif data.startswith("download_"):
         content_id = data.split("_")[1]
@@ -780,24 +787,20 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel_upload)]
     )
-
-    telebirr_manual_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(handle_callback, pattern="^submit_ref_")],
-        states={AWAITING_TELEBIRR_REF: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_telebirr_ref)]},
-        fallbacks=[]
-    )
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(search_handler)
     app.add_handler(reg_handler)
     app.add_handler(upload_handler)
-    app.add_handler(telebirr_manual_handler)
+    
+    # 📌 አስተማማኝ ፍሰት፦ ግሎባል ሪሲቨሮች (Callback እና መደበኛ ጽሑፎችን ለመያዝ)
     app.add_handler(CallbackQueryHandler(handle_callback)) 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Kitab Bot (የተስተካከለ እና የተሟላ) በተሳካ ሁኔታ ተነስቷል...")
+    print("Kitab Bot በተሳካ ሁኔታ ተነስቷል...")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+    
