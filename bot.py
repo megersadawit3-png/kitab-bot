@@ -23,11 +23,12 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 AWAITING_BIO, AWAITING_PHONE = range(2)
 AWAITING_TITLE, AWAITING_CATEGORY, AWAITING_DESC, AWAITING_PRICE, AWAITING_FILE = range(10, 15)
 AWAITING_SEARCH_QUERY = range(20, 21)
+AWAITING_TELEBIRR_REF = range(30, 31)
 
 # =====================================================================
 # ⌨️ የሁሉም ቋንቋዎች ኪቦርዶች (KEYBOARDS)
 # =====================================================================
-lang_keyboard = [["🇪🇹 አማርኛ", "🌳 Afaan Oromoo", "🇬🇧 English"]]
+lang_keyboard = [["🇪🇹 አማርኛ", "🌳 Afaan Oromoo", "🇬びに English"]]
 
 am_main_keyboard = [
     ["📚 መጻሕፍት", "📄 ማጠቃለያዎች/Handouts"],
@@ -72,7 +73,7 @@ en_cat_keyboard = [
 ]
 
 # =====================================================================
-# 🗄️ የውስጥ ዳታቤዝ ረዳት ፋንክሽኖች (INLINE DATABASE FUNCTIONS)
+# 🗄️ የውስጥ ዳታቤዝ ረዳት ፋንክሽኖች (DATABASE FUNCTIONS)
 # =====================================================================
 def get_user_lang(telegram_id):
     conn = sqlite3.connect(DB_NAME)
@@ -499,50 +500,53 @@ async def view_library(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
 
 # =====================================================================
+# 📞 የቴሌብር ማኑዋል የደረሰኝ ቁጥር መቀበያ (PROCESS TELEBIRR REF)
+# =====================================================================
+async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    user_id = update.effective_user.id
+    lang = get_user_lang(user_id)
+    
+    # 📌 [ዋናው ማስተካከያ] በ handle_callback የተቀመጠውን የመጽሐፍ ID በትክክል እዚህ እናነባለን
+    book_id = context.user_data.get('buying_book_id')
+    kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
+    
+    book = get_content_by_id(book_id)
+    if not book:
+        await update.message.reply_text("❌ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+        return ConversationHandler.END
+
+    # ትዕዛዙን በዳታቤዝ ውስጥ ማስመዝገብ
+    add_order(user_id, book['id'], book['price'], payment_ref=text, status="pending")
+    
+    # ለአድሚኑ ማሳወቂያ መላክ
+    admin_msg = (
+        "💳 **አዲስ የቴሌብር ማኑዋል ክፍያ ማረጋገጫ ጥያቄ!**\n\n"
+        f"👤 **ተጠቃሚ ID:** `{user_id}`\n"
+        f"📚 **የይዘት ርዕስ:** {book['title']}\n"
+        f"💰 **የተከፈለው መጠን:** {book['price']} ETB\n"
+        f"🆔 **የግብይት መለያ (Transaction ID/Ref):** `{text}`\n"
+    )
+    admin_kb = [
+        [
+            InlineKeyboardButton("✅ ክፍያ አጽድቅ (Approve)", callback_data=f"pay_app_{user_id}_{book['id']}"),
+            InlineKeyboardButton("❌ ውድቅ አድርግ (Reject)", callback_data=f"pay_rej_{user_id}_{book['id']}")
+        ]
+    ]
+    await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, reply_markup=InlineKeyboardMarkup(admin_kb), parse_mode="Markdown")
+
+    reply_msg = "🙏 ማረጋገጫዎ ለአድሚን ተልኳል! ክፍያዎ ተረጋግጦ ሲጸድቅ ፋይሉ በቅጽበት ይላክልዎታል።" if lang == "am" else "🎉 Kaffaltiin keessan adminiif ergameera! Erga mirkanaa'uun booda faayiliin isiniif ergama."
+    await update.message.reply_text(reply_msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+    
+    return ConversationHandler.END
+
+# =====================================================================
 # 🔄 አጠቃላይ የመልዕክት ማስተናገጃ (GENERAL MESSAGE HANDLER)
 # =====================================================================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.effective_user.id
-    lang = get_user_lang(user_id)
-
-    # 📌 [ማስተካከያ] ተጠቃሚው በቴሌብር የደረሰኝ ማስገቢያ ስቴት ላይ ከሆነ መልዕክቱን ወደ ፈንክሽኑ እንመራዋለን
-    if context.user_data.get('state') == "AWAITING_TELEBIRR_REF":
-        book_id = context.user_data.get('buying_book_id')
-        kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
-        
-        book = get_content_by_id(book_id)
-        if not book:
-            await update.message.reply_text("❌ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
-            context.user_data['state'] = None
-            return
-
-        # ትዕዛዙን በዳታቤዝ ውስጥ ማስመዝገብ
-        add_order(user_id, book['id'], book['price'], payment_ref=text, status="pending")
-        
-        # ለአድሚኑ ማሳወቂያ መላክ
-        admin_msg = (
-            "💳 **አዲስ የቴሌብር ማኑዋል ክፍያ ማረጋገጫ ጥያቄ!**\n\n"
-            f"👤 **ተጠቃሚ ID:** `{user_id}`\n"
-            f"📚 **የይዘት ርዕስ:** {book['title']}\n"
-            f"💰 **የተከፈለው መጠን:** {book['price']} ETB\n"
-            f"🆔 **የግብይት መለያ (Transaction ID/Ref):** `{text}`\n"
-        )
-        admin_kb = [
-            [
-                InlineKeyboardButton("✅ ክፍያ አጽдቅ (Approve)", callback_data=f"pay_app_{user_id}_{book['id']}"),
-                InlineKeyboardButton("❌ ውድቅ አድርግ (Reject)", callback_data=f"pay_rej_{user_id}_{book['id']}")
-            ]
-        ]
-        await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, reply_markup=InlineKeyboardMarkup(admin_kb), parse_mode="Markdown")
-
-        reply_msg = "🙏 ማረጋገጫዎ ለአድሚን ተልኳል! ክፍያዎ ተረጋግጦ ሲጸድቅ ፋይሉ በቅጽበት ይላክልዎታል።" if lang == "am" else "🎉 Kaffaltiin keessan adminiif ergameera! Erga mirkanaa'uun booda faayiliin isiniif ergama."
-        await update.message.reply_text(reply_msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
-        
-        # ስቴቱን ማጽዳት
-        context.user_data['state'] = None
-        return
-
+    
     if text == "🇪🇹 አማርኛ":
         set_user_lang(user_id, "am")
         await update.message.reply_text("ወደ ዋናው ማውጫ እንኳን በደህና መጡ!", reply_markup=ReplyKeyboardMarkup(am_main_keyboard, resize_keyboard=True))
@@ -555,6 +559,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         set_user_lang(user_id, "en")
         await update.message.reply_text("Welcome to the Main Menu!", reply_markup=ReplyKeyboardMarkup(en_main_keyboard, resize_keyboard=True))
         return
+
+    lang = get_user_lang(user_id)
 
     if text in ["📁 የእኔ ላይብረሪ", "📁 Kuusaa Koo", "📁 My Library"]:
         await view_library(update, context)
@@ -595,7 +601,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if db_category:
         books = get_contents_by_category(db_category)
         if not books:
-            msg = f"😔 ይቅርታ፣ በዚህ ሰዓት በ'{text}' ዘርፍ የተጫነ ይዘት የለም。" if lang == "am" else (f"😔 Dardon, gosa kanaan '{text}' qabiyyee argamu hin jiru." if lang == "or" else f"😔 Sorry, there are no items available in the '{text}' category right now.")
+            msg = f"😔 ይቅርታ፣ በዚህ ሰዓት በ'{text}' ዘርፍ የተጫነ ይዘት የለም।" if lang == "am" else (f"😔 Dardon, gosa kanaan '{text}' qabiyyee argamu hin jiru." if lang == "or" else f"😔 Sorry, there are no items available in the '{text}' category right now.")
             await update.message.reply_text(msg)
             return
 
@@ -641,12 +647,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=user_id, text=pay_msg, reply_markup=InlineKeyboardMarkup(inline_kb), parse_mode="Markdown")
 
     elif data.startswith("submit_ref_"):
-        # 📌 [ማስተካከያ] ኢንዴክስ 2 በትክክል መታወቂያውን ይወስዳል
+        # 📌 [ዋናው ማስተካከያ] መጀመሪያ የመጽሐፉን ID በትክክል እንይዛለን
         book_id = data.split("_")[2]
         context.user_data['buying_book_id'] = book_id
+        
         await context.bot.send_message(chat_id=user_id, text="📝 እባክዎ የቴሌብር የግብይት መለያ (Transaction Reference ቁጥር) ብቻ ይጻፉልኝ፦")
-        # 📌 [ማስተካከያ] ስቴቱን እዚህ ጋ እንመዘግባለን፣ በዋናው handle_message ውስጥ ይያዛል
-        context.user_data['state'] = "AWAITING_TELEBIRR_REF"
+        # 📌 ይህንን የውይይት ደረጃ (State) በመመለስ የ ConversationHandler ስራውን እንዲጀምር እናደርጋለን
+        return AWAITING_TELEBIRR_REF
 
     elif data.startswith("download_"):
         content_id = data.split("_")[1]
@@ -773,16 +780,25 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel_upload)]
     )
 
+    # 📌 [አንተ የፈጠርከው የቴሌብር መዋቅር] ልክ እንደነበረ ጠብቀነዋል!
+    telebirr_manual_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(handle_callback, pattern="^submit_ref_")],
+        states={AWAITING_TELEBIRR_REF: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_telebirr_ref)]},
+        fallbacks=[]
+    )
+    
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(search_handler)
     app.add_handler(reg_handler)
     app.add_handler(upload_handler)
+    app.add_handler(telebirr_manual_handler) # 📌 ልክ እንዳንተ አቀማመጥ ተቀምጧል
     app.add_handler(CallbackQueryHandler(handle_callback)) 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Kitab Bot (የተስተካከለ እና የተሟላ) በተሳካ ሁኔታ ተነስቷል...")
+    print("Kitab Bot (የተስተካከለ እና ደረጃው የጠበቀ) በተሳካ ሁኔታ ተነስቷል...")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+    
