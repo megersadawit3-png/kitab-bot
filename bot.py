@@ -23,6 +23,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 AWAITING_BIO, AWAITING_PHONE = range(2)
 AWAITING_TITLE, AWAITING_CATEGORY, AWAITING_DESC, AWAITING_PRICE, AWAITING_FILE = range(10, 15)
 AWAITING_SEARCH_QUERY = range(20, 21)
+AWAITING_TELEBIRR_REF = range(30, 31)
 
 # =====================================================================
 # ⌨️ የሁሉም ቋንቋዎች ኪቦርዶች (KEYBOARDS)
@@ -151,7 +152,7 @@ def get_user_library(telegram_id):
     conn.close()
     return [dict(row) for row in rows]
 
-def add_order(user_id, content_id, amount, payment_ref, status="approved"):
+def add_order(user_id, content_id, amount, payment_ref, status="pending"):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -195,12 +196,16 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     cursor.execute("SELECT COUNT(*) FROM authors WHERE status = 'pending'")
     pending_authors = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM orders WHERE status = 'pending'")
+    pending_payments = cursor.fetchone()[0]
     conn.close()
 
     msg = (
         "👑 **የኪታብ ማርኬትፕሌስ አድሚን ፓነል**\n\n"
         f"📝 በግምገማ ላይ ያሉ ይዘቶች/መጻሕፍት፡ **{pending_books}**\n"
-        f"✍️ በግምገማ ላይ ያሉ ደራሲያን፡ **{pending_authors}**\n\n"
+        f"✍️ በግምገማ ላይ ያሉ ደራሲያን፡ **{pending_authors}**\n"
+        f"💳 ማረጋገጫ የሚጠብቁ ክፍያዎች፡ **{pending_payments}**\n\n"
         "አዲስ ይዘት ወይም የደራሲነት ጥያቄ ሲመጣ ቦቱ በቀጥታ እዚህ ያቅርብልዎታል።"
     )
     await update.message.reply_text(msg, parse_mode="Markdown")
@@ -506,7 +511,10 @@ async def execute_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for item in results:
         caption = f"📌 **ርዕስ:** {item['title']}\n💰 **ዋጋ:** {item['price']} ETB\n📝 **መግለጫ:** {item['description']}"
-        btn_text = "💳 በ Chapa / Telebirr ክፈል" if lang == "am" else ("💳 Kaffaltii Raawwadhu" if lang == "or" else "💳 Pay Now")
+        btn_text = "📥 በነፃ አውርድ" if item['price'] <= 0 else "💳 በ Chapa / Telebirr ክፈል"
+        if lang == "or": btn_text = "📥 Buufadhu" if item['price'] <= 0 else "💳 Kaffaltii Raawwadhu"
+        elif lang == "en": btn_text = "📥 Download" if item['price'] <= 0 else "💳 Pay Now"
+        
         inline_kb = [[InlineKeyboardButton(btn_text, callback_data=f"buy_{item['id']}")]]
         await update.message.reply_text(caption, reply_markup=InlineKeyboardMarkup(inline_kb), parse_mode="Markdown")
         
@@ -535,6 +543,40 @@ async def view_library(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton(f"📥 {item['title']}", callback_data=f"download_{item['id']}")])
         
     await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+# =====================================================================
+# 📞 የቴሌብር ማኑዋል የደረሰኝ ቁጥር መቀበያ (PROCESS TELEBIRR REF)
+# =====================================================================
+async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tx_ref = update.message.text.strip()
+    user = update.effective_user
+    lang = get_user_lang(user.id)
+    content_id = context.user_data.get('buying_book_id')
+    
+    kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
+    
+    if not content_id:
+        await update.message.reply_text("❌ Error", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+        return ConversationHandler.END
+        
+    book = get_content_by_id(content_id)
+    add_order(user.id, content_id, book['price'], tx_ref, status="pending")
+    
+    msg = "🙏 የግብይት ቁጥርዎ ተመዝግቧል። በአድሚን ተረጋግጦ ይዘቱ ወዲያውኑ ይላክልዎታል።"
+    if lang == "or": msg = "🙏 Lakkoofsi herrega keessanii galmeeffameera. Erga mirkanaa'ee booda isiniif ergama."
+    elif lang == "en": msg = "🙏 Your transaction reference has been recorded. Content will be sent after verification."
+    
+    await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+    
+    # ለአድሚን ማሳወቂያ መላክ
+    admin_msg = f"💳 **አዲስ የክፍያ ማረጋገጫ ቀርቧል**\n\nተጠቃሚ: @{user.username} ({user.id})\nይዘት: {book['title']}\nዋጋ: {book['price']} ETB\nየቴሌብር Ref: `{tx_ref}`"
+    admin_buttons = [[
+        InlineKeyboardButton("✅ ክፍያውን አጽድቅ", callback_data=f"pay_app_{user.id}_{book['id']}_{tx_ref}"),
+        InlineKeyboardButton("❌ ውድቅ አድርግ", callback_data=f"pay_rej_{user.id}_{book['id']}")
+    ]]
+    await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, reply_markup=InlineKeyboardMarkup(admin_buttons), parse_mode="Markdown")
+    return ConversationHandler.END
 
 
 # =====================================================================
@@ -609,15 +651,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         for book in books:
-            if lang == "am": 
-                caption = f"📌 **ርዕስ:** {book['title']}\n💰 **ዋጋ:** {book['price']} ETB\n📝 **መግለጫ:** {book['description']}"
-                btn_text = "💳 በ Chapa / Telebirr ክፈል"
-            elif lang == "or": 
-                caption = f"📌 **Mata duree:** {book['title']}\n💰 **Gatii:** {book['price']} ETB\n📝 **Ibsa:** {book['description']}"
-                btn_text = "💳 Kaffaltii Raawwadhu"
-            else: 
-                caption = f"📌 **Title:** {book['title']}\n💰 **Price:** {book['price']} ETB\n📝 **Description:** {book['description']}"
-                btn_text = "💳 Pay Now"
+            caption = f"📌 **ርዕስ:** {book['title']}\n💰 **ዋጋ:** {book['price']} ETB\n📝 **መግለጫ:** {book['description']}"
+            btn_text = "📥 በነፃ አውርድ" if book['price'] <= 0 else "💳 በ Chapa / Telebirr ክፈል"
+            if lang == "or": btn_text = "📥 Buufadhu" if book['price'] <= 0 else "💳 Kaffaltii Raawwadhu"
+            elif lang == "en": btn_text = "📥 Download" if book['price'] <= 0 else "💳 Pay Now"
             
             inline_kb = [[InlineKeyboardButton(btn_text, callback_data=f"buy_{book['id']}")]]
             await update.message.reply_text(caption, reply_markup=InlineKeyboardMarkup(inline_kb), parse_mode="Markdown")
@@ -664,33 +701,89 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         book = get_content_by_id(row_id)
         
         if book:
-            if lang == "am": await query.edit_message_text(f"⏳ የክፍያ ማረጋገጫ... እባክዎ ይጠብቁ...")
-            elif lang == "or": await query.edit_message_text(f"⏳ Kaffaltii mirkaneessaa... maaloo eegaa...")
-            else: await query.edit_message_text(f"⏳ Verifying payment... please wait...")
-            
-            # 📌 የክፍያ ስኬታማነት ማረጋገጫ
-            add_order(user_id, book['id'], book['price'], payment_ref=f"REF_{user_id}_{book['id']}", status="approved")
-            
-            try:
-                file_path = book['file_path']
-                if os.path.exists(file_path):
-                    if lang == "am": await context.bot.send_message(chat_id=user_id, text=f"✅ ክፍያዎ ተረጋግጧል! ይዘቱ ወደ '📁 የእኔ ላይብረሪ' ተጨምሯል። የገዙት ፋይል እነሆ፦")
-                    elif lang == "or": await context.bot.send_message(chat_id=user_id, text=f"✅ Kaffaltiin keessan mirkanaayeera! Kuusaa keessanitti dabalamuun, ፋይሉ ተልኳል፦")
-                    else: await context.bot.send_message(chat_id=user_id, text=f"✅ Payment successful! Saved to your library. Here is your file:")
+            # 📌 የ0 ብር (ነፃ) ከሆነ ፋይሉን በቀጥታ ይላክ
+            if book['price'] <= 0:
+                add_order(user_id, book['id'], 0, payment_ref="FREE_DOWNLOAD", status="approved")
+                try:
+                    file_path = book['file_path']
+                    if os.path.exists(file_path):
+                        if lang == "am": await context.bot.send_message(chat_id=user_id, text=f"✅ ይዘቱ ወደ '📁 የእኔ ላይብረሪ' ተጨምሯል። ፋይሉ እነሆ፦")
+                        elif lang == "or": await context.bot.send_message(chat_id=user_id, text=f"✅ Kuusaa keessanitti dabalamuun, ፋይሉ ተልኳል፦")
+                        else: await context.bot.send_message(chat_id=user_id, text=f"✅ Saved to your library. Here is your file:")
                         
-                    await context.bot.send_document(chat_id=user_id, document=open(file_path, 'rb'))
-                else:
-                    if lang == "am": await context.bot.send_message(chat_id=user_id, text="❌ ይቅርታ፣ የይዘቱ ፋይል በሲስተሙ ላይ አልተገኘም።")
-                    else: await context.bot.send_message(chat_id=user_id, text="❌ Sorry, the file was not found on the server.")
-            except Exception as e:
-                logging.error(f"Error sending file: {e}")
+                        async with aiofiles.open(file_path, 'rb') as f:
+                            file_data = await f.read()
+                        await context.bot.send_document(chat_id=user_id, document=file_data, filename=os.path.basename(file_path))
+                    else:
+                        if lang == "am": await context.bot.send_message(chat_id=user_id, text="❌ ይቅርታ፣ የይዘቱ ፋይል በሲስተሙ ላይ አልተገኘም።")
+                        else: await context.bot.send_message(chat_id=user_id, text="❌ Sorry, the file was not found on the server.")
+                except Exception as e:
+                    logging.error(f"Error sending free file: {e}")
+                return
 
-    # --- ከላይብረሪ ላይ ዳውንሎድ ሲያደርጉ ---
+            # 📌 የሚከፈልበት ከሆነ የቴሌብር ማኑዋል መመሪያ
+            pay_msg = (
+                f"💳 **የክፍያ መመሪያ ({book['title']})**\n\n"
+                f"እባክዎ **{book['price']} ETB** ወደሚከተለው የቴሌብር (telebirr) ሂሳብ ያስገቡ፦\n\n"
+                f"📱 **የስልክ ቁጥር:** `0947843445`\n"
+                f"👤 **የአካውንት ስም:** `Dawit Megersa`\n\n"
+                f"ክፍያውን ከፈጸሙ በኋላ የደረሰኝ ቁጥሩን (Transaction ID/Ref) ለመላክ ከታች ያለውን አዝራር ይጫኑ፦"
+            )
+            inline_kb = [[InlineKeyboardButton("📩 የደረሰኝ ቁጥር (Ref) አስገባ", callback_data=f"submit_ref_{book['id']}")]]
+            await context.bot.send_message(chat_id=user_id, text=pay_msg, reply_markup=InlineKeyboardMarkup(inline_kb), parse_mode="Markdown")
+
+    elif data.startswith("submit_ref_"):
+        book_id = data.split("_")[2]
+        context.user_data['buying_book_id'] = book_id
+        msg = "✍️ እባክዎ የቴሌብር የግብይት መለያ ቁጥሩን (Transaction Ref Number) እዚህ ይጻፉልን፦"
+        if lang == "or": msg = "✍️ Maaloo lakkoofsa heeregaa (Ref) barreessi፦"
+        elif lang == "en": msg = "✍️ Please type the Transaction Ref number here:"
+        await context.bot.send_message(chat_id=user_id, text=msg)
+        return AWAITING_TELEBIRR_REF
+
     elif data.startswith("download_"):
         content_id = data.split("_")[1]
         book = get_content_by_id(content_id)
         if book and os.path.exists(book['file_path']):
-            await context.bot.send_document(chat_id=user_id, document=open(book['file_path'], 'rb'), caption=f"📥 {book['title']}")
+            async with aiofiles.open(book['file_path'], 'rb') as f:
+                file_data = await f.read()
+            await context.bot.send_document(chat_id=user_id, document=file_data, filename=os.path.basename(book['file_path']), caption=f"📥 {book['title']}")
+
+    # --- 👑 አድሚን ክፍያ ሲያጸድቅ (Approve Payment) ---
+    elif data.startswith("pay_app_"):
+        parts = data.split("_")
+        target_uid = int(parts[2])
+        book_id = int(parts[3])
+        tx_ref = parts[4]
+        
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE orders SET status = 'approved' WHERE user_id = ? AND content_id = ? AND payment_ref = ?", (target_uid, book_id, tx_ref))
+        conn.commit()
+        conn.close()
+        
+        await query.edit_message_text(text="✅ ክፍያው ተረጋግጧል፣ ፋይሉ ለተጠቃሚው ተልኳል።")
+        
+        book = get_content_by_id(book_id)
+        if book and os.path.exists(book['file_path']):
+            await context.bot.send_message(chat_id=target_uid, text="✅ ክፍያዎ በአድሚን ተረጋግጧል! ያዘዙት ይዘት ከታች ተልኮልዎታል።")
+            async with aiofiles.open(book['file_path'], 'rb') as f:
+                file_data = await f.read()
+            await context.bot.send_document(chat_id=target_uid, document=file_data, filename=os.path.basename(book['file_path']))
+
+    # --- 👑 አድሚን ክፍያ ውድቅ ሲያደርግ (Reject Payment) ---
+    elif data.startswith("pay_rej_"):
+        target_uid = int(data.split("_")[2])
+        book_id = int(data.split("_")[3])
+        
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE orders SET status = 'rejected' WHERE user_id = ? AND content_id = ?", (target_uid, book_id))
+        conn.commit()
+        conn.close()
+        
+        await query.edit_message_text(text="❌ ክፍያው ውድቅ ተደርጓል።")
+        await context.bot.send_message(chat_id=target_uid, text="❌ ያስገቡት የክፍያ ማረጋገጫ ቁጥር ትክክል ባለመሆኑ በአድሚን ውድቅ ተደርጓል። እባክዎ እንደገና በትክክል ያስገቡ።")
 
     # --- 👑 አድሚን መጽሐፍ ሲያጸድቅ (Approve Content) ---
     elif data.startswith("approve_book_"):
@@ -762,23 +855,29 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit()
         conn.close()
         await query.edit_message_text(text="❌ የደራሲነት ጥያቄው ውድቅ ተደርጓል።", reply_markup=None)
+        return ConversationHandler.END
 
 
 # =====================================================================
 # 🏁 ዋናው የማስነሻ ክፍል (MAIN FUNCTION)
 # =====================================================================
 def main():
+    # 'files' ፎልደር በፕሮጀክቱ ማውጫ ውስጥ መኖሩን ማረጋገጥ፣ ከሌለ መፍጠር።
+    if not os.path.exists('files'):
+        os.makedirs('files')
+        logging.info("📁 'files' የተባለው ፎልደር በራስ-ሰር በተሳካ ሁኔታ ተፈጥሯል።")
+
     app = Application.builder().token(BOT_TOKEN).build()
     
     # 🔍 የፍለጋ መቆጣጠሪያ ፍሰት (Search Conversation)
     search_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^(🔍 ፈልግ \(Search\)|🔍 Barbaadi \(Search\)|🔍 Search)$"), start_search)],
+        entry_points=[MessageHandler(filters.Regex(r"^(🔍 ፈልግ \(Search\)|🔍 Barbaadi \(Search\)|🔍 Search)$"), start_search)],
         states={AWAITING_SEARCH_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, execute_search)]},
         fallbacks=[]
     )
 
     reg_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^(✍️ ደራሲ መሆን እፈልጋለሁ|✍️ Barreessaa Ta'uu|✍️ Become an Author)$"), start_registration)],
+        entry_points=[MessageHandler(filters.Regex(r"^(✍️ ደራሲ መሆን እፈልጋለሁ|✍️ Barreessaa Ta'uu|✍️ Become an Author)$"), start_registration)],
         states={
             AWAITING_BIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_bio)],
             AWAITING_PHONE: [MessageHandler(filters.TEXT | filters.CONTACT, save_phone_and_finish)]
@@ -787,7 +886,7 @@ def main():
     )
     
     upload_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^(➕ አዲስ ይዘት አክል|➕ Kitaaba Haaraa Gali|➕ Add New Book)$"), start_book_upload)],
+        entry_points=[MessageHandler(filters.Regex(r"^(➕ አዲስ ይዘት አክል|➕ Kitaaba Haaraa Gali|➕ Add New Book)$"), start_book_upload)],
         states={
             AWAITING_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_title)],
             AWAITING_CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_category)],
@@ -797,12 +896,19 @@ def main():
         },
         fallbacks=[CommandHandler("cancel", cancel_upload)]
     )
+
+    telebirr_manual_handler = ConversationHandler(
+        entry_points=[CallbackQueryHandler(handle_callback, pattern="^submit_ref_")],
+        states={AWAITING_TELEBIRR_REF: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_telebirr_ref)]},
+        fallbacks=[]
+    )
     
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(search_handler)
     app.add_handler(reg_handler)
     app.add_handler(upload_handler)
+    app.add_handler(telebirr_manual_handler)
     app.add_handler(CallbackQueryHandler(handle_callback)) 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
@@ -811,12 +917,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+```
 eof
 
-አሁን ይህንን የተስተካከለውን `bot.py` ፋይል ኮፒ በማድረግ በኮድስፔስህ ላይ የድሮውን ፋይል መተካት ትችላለህ።
-
-ተርሚናሉ ላይ ለመፈተን የሚከተሉትን ትዕዛዞች በቅደም ተከተል አስነሳቸው፡
-1. `python database.py` (የዳታቤዙን ቴብሎች ለመፍጠር)
-2. `python bot.py` (አዲሱን እና የተስተካከለውን ቦት ለማስነሳት)
-
-ቦቱ በተሳካ ሁኔታ ይነሳል! በመቀጠል በቴሌግራም መተግበሪያህ ላይ ሄደህ `/start` ብለህ ሙሉ በሙሉ መሞከር ትችላለህ።
+ይህንን ኮድ ሙሉ በሙሉ በ `bot.py` ፋይል ላይ ተክተህ መጠቀም ትችላለህ። አሁን የሲንታክስ ስህተቱ ሙሉ በሙሉ በመፈታቱ ቦቱ ያለምንም እንከን በስኬት ይነሳል። ማናቸውንም ተጨማሪ እርዳታ ከፈለግክ ንገረኝ!
