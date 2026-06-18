@@ -28,45 +28,45 @@ AWAITING_TELEBIRR_REF = range(30, 31)
 # =====================================================================
 # ⌨️ የሁሉም ቋንቋዎች ኪቦርዶች (KEYBOARDS)
 # =====================================================================
-lang_keyboard = [[\"🇪🇹 አማርኛ\", \"🌳 Afaan Oromoo\", \"🇬🇧 English\"]]
+lang_keyboard = [["🇪🇹 አማርኛ", "🌳 Afaan Oromoo", "🇬🇧 English"]]
 
 am_main_keyboard = [
-    [\"📚 መጻሕፍት\", \"📄 ማጠቃለያዎች/Handouts\"],
-    [\"📝 የጥያቄ ባንክ\", \"📁 ማስታወሻዎች\"],
-    [\"🔍 ፈልግ (Search)\", \"📁 የእኔ ላይብረሪ\"],
-    [\"✍️ ደራሲ መሆን እፈልጋለሁ\", \"➕ አዲስ ይዘት አክል\", \"☎️ እርዳታ\"]
+    ["📚 መጻሕፍት", "📄 ማጠቃለያዎች/Handouts"],
+    ["📝 የጥያቄ ባንክ", "📁 ማስታወሻዎች"],
+    ["🔍 ፈልግ (Search)", "📁 የእኔ ላይብረሪ"],
+    ["✍️ ደራሲ መሆን እፈልጋለሁ", "➕ አዲስ ይዘት አክል", "☎️ እርዳታ"]
 ]
 
 or_main_keyboard = [
-    [\"📚 Kitaabota\", \"📄 Guduunfaalee/Handouts\"],
-    [\"📝 Baanki Gaaffilee\", \"📁 Yaadannoolee\"],
-    [\"🔍 Barbaadi (Search)\", \"📁 Mana Kitaaba koo\"],
-    [\"✍️ Barreessaa Ta'uun Barbaada\", \"➕ Kitaaba Haaraa Gali\", \"☎️ Gargaarsa\"]
+    ["📚 Kitaabota", "📄 Guduunfaalee/Handouts"],
+    ["📝 Baanki Gaaffilee", "📁 Yaadannoolee"],
+    ["🔍 Barbaadi (Search)", "📁 Mana Kitaaba koo"],
+    ["✍️ Barreessaa Ta'uun Barbaada", "➕ Kitaaba Haaraa Gali", "☎️ Gargaarsa"]
 ]
 
 en_main_keyboard = [
-    [\"📚 Books\", \"📄 Summaries/Handouts\"],
-    [\"📝 Question Bank\", \"📁 Notes\"],
-    [\"🔍 Search\", \"📁 My Library\"],
-    [\"✍️ Become an Author\", \"➕ Add New Book\", \"☎️ Help\"]
+    ["📚 Books", "📄 Summaries/Handouts"],
+    ["📝 Question Bank", "📁 Notes"],
+    ["🔍 Search", "📁 My Library"],
+    ["✍️ Become an Author", "➕ Add New Book", "☎️ Help"]
 ]
 
 am_cat_keyboard = [
-    [\"📖 ስነ-ጽሁፍ (Literature)\", \"🧠 ፍልስፍና (Philosophy)\"],
-    [\"📐 አርክቴክቸር (Architecture)\", \"💻 ቴክኖሎጂ (Technology)\"],
-    [\"⬅️ ወደ ዋናው ማውጫ\"]
+    ["📖 ስነ-ጽሁፍ (Literature)", "🧠 ፍልስፍና (Philosophy)"],
+    ["📐 አርክቴክቸር (Architecture)", "💻 ቴክኖሎጂ (Technology)"],
+    ["⬅️ ወደ ዋናው ማውጫ"]
 ]
 
 or_cat_keyboard = [
-    [\"📖 Og-barruu (Literature)\", \"🧠 Fiilosofii (Philosophy)\"],
-    [\"📐 Arkiteक्चर (Architecture)\", \"💻 Teeknoolojii (Technology)\"],
-    [\"⬅️ Gara Menuu Gurguddaatti\"]
+    ["📖 Og-barruu (Literature)", "🧠 Fiilosofii (Philosophy)"],
+    ["📐 Arkiteक्चर (Architecture)", "💻 Teeknoolojii (Technology)"],
+    ["⬅️ Gara Menuu Gurguddaatti"]
 ]
 
 en_cat_keyboard = [
-    [\"📖 Literature\", \"🧠 Philosophy\"],
-    [\"📐 Architecture\", \"💻 Technology\"],
-    [\"⬅️ Back to Main Menu\"]
+    ["📖 Literature", "🧠 Philosophy"],
+    ["📐 Architecture", "💻 Technology"],
+    ["⬅️ Back to Main Menu"]
 ]
 
 # =====================================================================
@@ -118,21 +118,21 @@ def init_db():
 def save_user_info(user_id, username):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)\", (user_id, username))
+    cursor.execute("INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)", (user_id, username))
     conn.commit()
     conn.close()
 
 def set_user_lang(user_id, lang):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"UPDATE users SET lang = ? WHERE user_id = ?\", (lang, user_id))
+    cursor.execute("UPDATE users SET lang = ? WHERE user_id = ?", (lang, user_id))
     conn.commit()
     conn.close()
 
 def get_user_lang(user_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"SELECT lang FROM users WHERE user_id = ?\", (user_id,))
+    cursor.execute("SELECT lang FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     conn.close()
     return row[0] if row and row[0] else None
@@ -140,7 +140,7 @@ def get_user_lang(user_id):
 def is_user_author(user_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"SELECT status FROM authors WHERE user_id = ?\", (user_id,))
+    cursor.execute("SELECT status FROM authors WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     conn.close()
     return row and row[0] == 'approved'
@@ -148,7 +148,7 @@ def is_user_author(user_id):
 def add_author_request(user_id, username, bio, phone):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"INSERT OR REPLACE INTO authors (user_id, username, bio, phone, status) VALUES (?, ?, ?, ?, 'pending')\", 
+    cursor.execute("INSERT OR REPLACE INTO authors (user_id, username, bio, phone, status) VALUES (?, ?, ?, ?, 'pending')", 
                    (user_id, username, bio, phone))
     conn.commit()
     conn.close()
@@ -156,7 +156,7 @@ def add_author_request(user_id, username, bio, phone):
 def add_content_request(author_id, title, category, description, price, file_path):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"INSERT INTO contents (author_id, title, category, description, price, file_path, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')\", 
+    cursor.execute("INSERT INTO contents (author_id, title, category, description, price, file_path, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')", 
                    (author_id, title, category, description, price, file_path))
     content_id = cursor.lastrowid
     conn.commit()
@@ -166,7 +166,7 @@ def add_content_request(author_id, title, category, description, price, file_pat
 def get_contents_by_category(category):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"SELECT id, title, description, price FROM contents WHERE category = ? AND status = 'approved'\", (category,))
+    cursor.execute("SELECT id, title, description, price FROM contents WHERE category = ? AND status = 'approved'", (category,))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -174,7 +174,7 @@ def get_contents_by_category(category):
 def get_content_by_id(content_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"SELECT id, author_id, title, description, price, file_path FROM contents WHERE id = ?\", (content_id,))
+    cursor.execute("SELECT id, author_id, title, description, price, file_path FROM contents WHERE id = ?", (content_id,))
     row = cursor.fetchone()
     conn.close()
     if row:
@@ -184,7 +184,7 @@ def get_content_by_id(content_id):
 def search_contents(query_text):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"SELECT id, title, price FROM contents WHERE (title LIKE ? OR description LIKE ?) AND status = 'approved'\", 
+    cursor.execute("SELECT id, title, price FROM contents WHERE (title LIKE ? OR description LIKE ?) AND status = 'approved'", 
                    (f'%{query_text}%', f'%{query_text}%'))
     rows = cursor.fetchall()
     conn.close()
@@ -193,7 +193,7 @@ def search_contents(query_text):
 def get_pending_books_count():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"SELECT COUNT(*) FROM contents WHERE status = 'pending'\")
+    cursor.execute("SELECT COUNT(*) FROM contents WHERE status = 'pending'")
     count = cursor.fetchone()[0]
     conn.close()
     return count
@@ -201,7 +201,7 @@ def get_pending_books_count():
 def get_pending_authors_count():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"SELECT COUNT(*) FROM authors WHERE status = 'pending'\")
+    cursor.execute("SELECT COUNT(*) FROM authors WHERE status = 'pending'")
     count = cursor.fetchone()[0]
     conn.close()
     return count
@@ -209,7 +209,7 @@ def get_pending_authors_count():
 def add_order(user_id, content_id, tx_ref):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"INSERT INTO orders (user_id, content_id, tx_ref, status) VALUES (?, ?, ?, 'pending')\", (user_id, content_id, tx_ref))
+    cursor.execute("INSERT INTO orders (user_id, content_id, tx_ref, status) VALUES (?, ?, ?, 'pending')", (user_id, content_id, tx_ref))
     order_id = cursor.lastrowid
     conn.commit()
     conn.close()
@@ -218,8 +218,8 @@ def add_order(user_id, content_id, tx_ref):
 def approve_order_in_db(order_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"UPDATE orders SET status = 'approved' WHERE id = ?\", (order_id,))
-    cursor.execute(\"SELECT user_id, content_id FROM orders WHERE id = ?\", (order_id,))
+    cursor.execute("UPDATE orders SET status = 'approved' WHERE id = ?", (order_id,))
+    cursor.execute("SELECT user_id, content_id FROM orders WHERE id = ?", (order_id,))
     row = cursor.fetchone()
     conn.commit()
     conn.close()
@@ -240,7 +240,7 @@ def get_user_library(user_id):
 def has_user_purchased(user_id, content_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(\"SELECT id FROM orders WHERE user_id = ? AND content_id = ? AND status = 'approved'\", (user_id, content_id))
+    cursor.execute("SELECT id FROM orders WHERE user_id = ? AND content_id = ? AND status = 'approved'", (user_id, content_id))
     row = cursor.fetchone()
     conn.close()
     return row is not None
@@ -323,7 +323,7 @@ async def save_phone_and_finish(update: Update, context: ContextTypes.DEFAULT_TY
     # ለአድሚን ማሳወቂያ መላክ
     admin_msg = f"👤 **አዲስ የደራሲነት ማመልከቻ**\n\nስም: @{user.username}\nባዮ: {bio}\nስልክ: {phone}"
     admin_buttons = [[
-        InlineKeyboardButton("✅ አጽድቅ (Approve)", callback_mode=f"approve_auth_{user.id}"),
+        InlineKeyboardButton("✅ አጽድቅ (Approve)", callback_data=f"approve_auth_{user.id}"),
         InlineKeyboardButton("❌ ውድቅ አድርግ", callback_data=f"reject_auth_{user.id}")
     ]]
     await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, reply_markup=InlineKeyboardMarkup(admin_buttons), parse_mode="Markdown")
@@ -341,7 +341,7 @@ async def start_book_upload(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     lang = get_user_lang(user_id)
     if not is_user_author(user_id):
         msg = "⛔️ ይዘት ለመጫን መጀመሪያ ደራሲ ሆነው መመዝገብ እና መጽደቅ አለብዎት።"
-        if lang == "or": msg = "⛔️ Kitaaba galchuuf jalqaba barreessaa taatanii mirკናa'uu qabdu."
+        if lang == "or": msg = "⛔️ Kitaaba galchuuf jalqaba barreessaa taatanii mirkanaa'uu qabdu."
         elif lang == "en": msg = "⛔️ You must be an approved author to upload content."
         await update.message.reply_text(msg)
         return ConversationHandler.END
@@ -419,10 +419,10 @@ async def save_file_and_finish(update: Update, context: ContextTypes.DEFAULT_TYP
     
     content_id = add_content_request(author_id, title, category, desc, price, file_path)
     
-    msg = "✅ ይዘቱ በተሳካ ሁኔታ ተጭኗል። በአድሚን ተገምግሞ ሲፈቀድ በገበያ ላይ ይውላል።"
+    msg = "✅ ይዘቱ በተሳካ ሁኔታ ተጭኗል። በአድሚን ተገምግሞ ሲፈቀድ በገበያ ላይ ይውላል。"
     kb = am_main_keyboard
     if lang == "or":
-        msg = "✅ Kitaabni galmeeffameera. Erga Adminiin ilaalamee mirკናa'ee gabaa irra oola."
+        msg = "✅ Kitaabni galmeeffameera. Erga Adminiin ilaalamee mirkanaa'ee gabaa irra oola."
         kb = or_main_keyboard
     elif lang == "en":
         msg = "✅ Content uploaded successfully. It will be live after admin approval."
@@ -462,8 +462,8 @@ async def execute_search(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
     
     if not results:
-        msg = "😔 ምንም ዓይነት የተገኘ ይዘት የለም።"
-        if lang == "or": msg = "😔 Buአaan barbaachisaa hin argamne."
+        msg = "😔 ምንም ዓይነት የተገኘ ይዘት የለም。"
+        if lang == "or": msg = "😔 Bu'aan barbaachisaa hin argamne."
         elif lang == "en": msg = "😔 No content found matching your search."
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         return ConversationHandler.END
@@ -506,7 +506,7 @@ async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYP
     # ለአድሚን ማሳወቂያ መላክ
     admin_msg = f"💳 **አዲስ የክፍያ ማረጋገጫ ቀርቧል**\n\nተጠቃሚ: @{user.username} ({user.id})\nይዘት: {book['title']}\nዋጋ: {book['price']} ETB\nየቴሌብር Ref: `{tx_ref}`"
     admin_buttons = [[
-        InlineKeyboardButton("✅ ክፍያውን አጽድቅ", callback_data=f"pay_app_{order_id}"),
+        InlineKeyboardButton("✅ ክፍያውን አጽдቅ", callback_data=f"pay_app_{order_id}"),
         InlineKeyboardButton("❌ ውድቅ አድርግ", callback_data=f"pay_rej_{order_id}")
     ]]
     await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, reply_markup=InlineKeyboardMarkup(admin_buttons), parse_mode="Markdown")
@@ -540,7 +540,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if text in ["📁 የእኔ ላይብረሪ", "📁 Mana Kitaaba koo", "📁 My Library"]:
         lib = get_user_library(user_id)
         if not lib:
-            msg = "📥 እስካሁን የገዙት ወይም ያወረዱት ይዘት የለም።"
+            msg = "📥 እስካሁን የገዙት ወይም ያወረዱት ይዘት የለም。"
             if lang == "or": msg = "📥 Kitaabni ati bitatte hin jiru."
             elif lang == "en": msg = "📥 You haven't purchased or downloaded any content yet."
             await update.message.reply_text(msg)
@@ -587,7 +587,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         pay_msg = (
             f"💳 **የክፍያ መመሪያ**\n\n"
             f"እባክዎ {book['price']} ብር በቴሌብር (Telebirr) ቁጥር `0912345678` ላይ ይላኩ።\n"
-            f"ክፍያውን እንደፈጸሙ የተቀበሉትን የግብይት ቁጥር (Transaction ID / Ref) ከታች ያለውን ቁልፍ ተጭነው ያስገቡ።"
+            f"ክፍያውን እንደፈጸሙ የተቀበሉትን የግብይት ቁጥር (Transaction ID / Ref) ከታች ያለውን ቁልፍ ተጭነው ያስገቡ。"
         )
         btn_txt = "📥 የደረሰኝ ቁጥር አስገባ"
         if lang == "or":
@@ -655,31 +655,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 # 🚀 ቦቱን የማስነሻ ዋና ክፍል (MAIN APPLICATION)
 # =====================================================================
 async def main() -> None:
-    # 📁 'files' ፎልደር በፕሮጀክቱ ማውጫ ውስጥ መኖሩን ማረጋገጥ፣ ከሌለ መፍጠር።
+    # 📁 'files' ፎልደር መኖሩን ማረጋገጥ፣ ከሌለ መፍጠር።
     if not os.path.exists('files'):
         os.makedirs('files')
-        logging.info("📁 'files' የተባለው ፎልደር በራስ-ሰር በተሳካ ሁኔታ ተፈጥሯል።")
+        logging.info("📁 'files' የተባለው ፎልደር በተሳካ ሁኔታ ተፈጥሯል።")
 
     init_db()
     app = Application.builder().token(BOT_TOKEN).build()
     
     search_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex(\"^(🔍 ፈልግ \\(Search\\)|🔍 Barbaadi \\(Search\\)|🔍 Search)$ \"), start_search)],
+        entry_points=[MessageHandler(filters.Regex(r"^(🔍 ፈልግ \(Search\)|🔍 Barbaadi \(Search\)|🔍 Search)$"), start_search)],
         states={AWAITING_SEARCH_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, execute_search)]},
         fallbacks=[]
     )
     
     reg_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex(\"^(✍️ ደራሲ መሆን እፈልጋለሁ|✍️ Barreessaa Ta'uun Barbaada|✍️ Become an Author)$ \"), start_registration)],
+        entry_points=[MessageHandler(filters.Regex(r"^(✍️ ደራሲ መሆን እፈልጋለሁ|✍️ Barreessaa Ta'uun Barbaada|✍️ Become an Author)$"), start_registration)],
         states={
             AWAITING_BIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_bio)],
             AWAITING_PHONE: [MessageHandler(filters.TEXT | filters.CONTACT, save_phone_and_finish)]
         },
-        fallbacks=[CommandHandler(\"cancel\", cancel_reg)]
+        fallbacks=[CommandHandler("cancel", cancel_reg)]
     )
     
     upload_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex(\"^(➕ አዲስ ይዘት አክል|➕ Kitaaba Haaraa Gali|➕ Add New Book)$ \"), start_book_upload)],
+        entry_points=[MessageHandler(filters.Regex(r"^(➕ አዲስ ይዘት አክል|➕ Kitaaba Haaraa Gali|➕ Add New Book)$"), start_book_upload)],
         states={
             AWAITING_TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_title)],
             AWAITING_CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_category)],
@@ -687,17 +687,17 @@ async def main() -> None:
             AWAITING_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_price)],
             AWAITING_FILE: [MessageHandler(filters.Document.ALL, save_file_and_finish)]
         },
-        fallbacks=[CommandHandler(\"cancel\", cancel_upload)]
+        fallbacks=[CommandHandler("cancel", cancel_upload)]
     )
 
     telebirr_manual_handler = ConversationHandler(
-        entry_points=[CallbackQueryHandler(handle_callback, pattern=\"^submit_ref_\")],
+        entry_points=[CallbackQueryHandler(handle_callback, pattern="^submit_ref_")],
         states={AWAITING_TELEBIRR_REF: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_telebirr_ref)]},
         fallbacks=[]
     )
     
-    app.add_handler(CommandHandler(\"start\", start))
-    app.add_handler(CommandHandler(\"admin\", admin_panel))
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(search_handler)
     app.add_handler(reg_handler)
     app.add_handler(upload_handler)
