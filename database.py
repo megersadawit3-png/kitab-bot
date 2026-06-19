@@ -1,4 +1,3 @@
-
 import sqlite3
 import os
 import logging
@@ -373,4 +372,4 @@ def get_pending_counts():
 
     conn.close()
     return pending_books, pending_authors, pending_payments
-  
+    
