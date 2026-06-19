@@ -11,14 +11,14 @@ from telegram.ext import (
     ConversationHandler,
     CallbackQueryHandler
 )
-from config import BOT_TOKEN, ADMIN_ID
+from config import BOT_TOKEN, ADMIN_ID, TELEBIRR_PHONE, TELEBIRR_ACCOUNT_NAME
 import database as db
 
 # የሎግ ማስተካከያ
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # =====================================================================
-# 🔄 የውይይት መቆጣጠሪያ ደረጃዎች (CONVERSATION STATES)
+# 🔄 የውይይት መቆጣጠሪያ ደረጃዎች
 # =====================================================================
 AWAITING_BIO, AWAITING_PHONE = range(2)
 AWAITING_TITLE, AWAITING_CATEGORY, AWAITING_DESC, AWAITING_PRICE, AWAITING_FILE = range(10, 15)
@@ -26,7 +26,7 @@ AWAITING_SEARCH_QUERY = range(20, 21)
 AWAITING_TELEBIRR_REF = range(30, 31)
 
 # =====================================================================
-# ⌨️ የሁሉም ቋንቋዎች ኪቦርዶች (KEYBOARDS)
+# ⌨️ የሁሉም ቋንቋዎች ኪቦርዶች
 # =====================================================================
 lang_keyboard = [["🇪🇹 አማርኛ", "🌳 Afaan Oromoo", "🇬🇧 English"]]
 
@@ -78,6 +78,7 @@ en_cat_keyboard = [
     ["📝 Model Questions (Question Bank)", "⬅️ Back to Main Menu"]
 ]
 
+
 # =====================================================================
 # 🚀 የጥሪ መጀመሪያ (START COMMAND)
 # =====================================================================
@@ -94,7 +95,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =====================================================================
-# 👑 የአድሚን መቆጣጠሪያ ክፍል (ADMIN PANEL FUNCTIONS)
+# 👑 የአድሚን መቆጣጠሪያ ክፍል
 # =====================================================================
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -169,7 +170,7 @@ async def notify_admin_new_book(bot, book_id, title, price, file_path):
 
 
 # =====================================================================
-# ✍️ የደራሲያን ምዝገባ ፍሰት (AUTHOR REGISTRATION FLOW)
+# ✍️ የደራሲያን ምዝገባ ፍሰት
 # =====================================================================
 async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -249,7 +250,7 @@ async def cancel_reg(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =====================================================================
-# ➕ አዲስ ይዘት ማስገቢያ ፍሰት (CONTENT UPLOAD FLOW)
+# ➕ አዲስ ይዘት ማስገቢያ ፍሰት
 # =====================================================================
 async def start_book_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -285,15 +286,25 @@ async def save_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = db.get_user_lang(user_id)
     
     cat_map = {
-        "📖 ስነ-ጽሁፍ (Literature)": "Literature", "📖 ስነ-ጽሑፍ (Literature)": "Literature", "📖 Og-barruu (Literature)": "Literature", "📖 Literature": "Literature",
-        "🎓 ትምህርት (Education)": "Education", "🎓 Barnoota (Education)": "Education", "🎓 Education": "Education",
-        "📖 ሃይማኖት (Religion)": "Religion", "📖 Amantiikaa (Religion)": "Religion", "📖 Religion": "Religion",
-        "📜 ታሪክ (History)": "History", "📜 Seenaa (History)": "History", "📜 History": "History",
-        "💼 ንግድ (Business)": "Business", "💼 Daldala (Business)": "Business", "💼 Business": "Business",
-        "💻 ቴክኖሎጂ (Technology)": "Technology", "💻 Teeknoolojii (Technology)": "Technology", "💻 Technology": "Technology",
-        "📄 ማጠቃለያዎች (Handouts)": "Handouts", "📄 Qorannooslee (Handouts)": "Handouts", "📄 Handouts": "Handouts",
-        "📁 ማስታወሻዎች (Notes)": "Notes", "📁 Hubannoo (Notes)": "Notes", "📁 Notes": "Notes",
-        "📝 የሞዴል ጥያቄዎች (Question Bank)": "QuestionBank", "📝 Gaaffii Moodelii (Question Bank)": "QuestionBank", "📝 Model Questions (Question Bank)": "QuestionBank"
+        "📖 ስነ-ጽሁፍ (Literature)": "Literature", "📖 ስነ-ጽሑፍ (Literature)": "Literature", 
+        "📖 Og-barruu (Literature)": "Literature", "📖 Literature": "Literature",
+        "🎓 ትምህርት (Education)": "Education", "🎓 Barnoota (Education)": "Education", 
+        "🎓 Education": "Education",
+        "📖 ሃይማኖት (Religion)": "Religion", "📖 Amantiikaa (Religion)": "Religion", 
+        "📖 Religion": "Religion",
+        "📜 ታሪክ (History)": "History", "📜 Seenaa (History)": "History", 
+        "📜 History": "History",
+        "💼 ንግድ (Business)": "Business", "💼 Daldala (Business)": "Business", 
+        "💼 Business": "Business",
+        "💻 ቴክኖሎጂ (Technology)": "Technology", "💻 Teeknoolojii (Technology)": "Technology", 
+        "💻 Technology": "Technology",
+        "📄 ማጠቃለያዎች (Handouts)": "Handouts", "📄 Qorannooslee (Handouts)": "Handouts", 
+        "📄 Handouts": "Handouts",
+        "📁 ማስታወሻዎች (Notes)": "Notes", "📁 Hubannoo (Notes)": "Notes", 
+        "📁 Notes": "Notes",
+        "📝 የሞዴል ጥያቄዎች (Question Bank)": "QuestionBank", 
+        "📝 Gaaffii Moodelii (Question Bank)": "QuestionBank", 
+        "📝 Model Questions (Question Bank)": "QuestionBank"
     }
     
     context.user_data['upload_cat'] = cat_map.get(text, "Literature")
@@ -374,7 +385,7 @@ async def cancel_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =====================================================================
-# 🔍 የፍለጋ ሥርዓት (SEARCH CONVERSATION)
+# 🔍 የፍለጋ ሥርዓት
 # =====================================================================
 async def start_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -411,7 +422,7 @@ async def execute_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =====================================================================
-# 📁 የእኔ ላይብረሪ (MY LIBRARY SYSTEM)
+# 📁 የእኔ ላይብረሪ
 # =====================================================================
 async def view_library(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -434,7 +445,7 @@ async def view_library(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =====================================================================
-# 📞 የቴሌብር ማኑዋል የደረሰኝ ቁጥር መቀበያ (PROCESS TELEBIRR REF)
+# 📞 የቴሌብር ማኑዋል የደረሰኝ ቁጥር መቀበያ
 # =====================================================================
 async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tx_ref = update.message.text.strip()
@@ -478,10 +489,9 @@ async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 # =====================================================================
-# 📊 የደራሲ ሽያጭ ሪፖርት (AUTHOR SALES REPORT)
+# 📊 የደራሲ ሽያጭ ሪፖርት
 # =====================================================================
 async def author_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ደራሲው የራሱን ይዘቶች ሽያጭ እንዲያይ ያስችላል።"""
     user_id = update.effective_user.id
     lang = db.get_user_lang(user_id)
     
@@ -513,7 +523,7 @@ async def author_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =====================================================================
-# 🔄 አጠቃላይ የመልዕክት ማስተናገጃ (GENERAL MESSAGE HANDLER)
+# 🔄 አጠቃላይ የመልዕክት ማስተናገጃ
 # =====================================================================
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
@@ -552,15 +562,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         return
 
-    # 📌 ለዋና ዋና ምድቦች የቀጥታ አዝራሮች (Handouts, Notes, Model Questions)
+    # 📌 ለዋና ዋና ምድቦች የቀጥታ አዝራሮች
     db_category = None
-    if text in ["📄 ማጠቃለያዎች/Handouts", "📄 Qorannooslee/Handouts", "📄 Handouts", "📄 ማጠቃለያዎች (Handouts)", "📄 Qorannooslee (Handouts)"]:
+    if text in ["📄 ማጠቃለያዎች/Handouts", "📄 Qorannooslee/Handouts", "📄 Handouts", 
+                "📄 ማጠቃለያዎች (Handouts)", "📄 Qorannooslee (Handouts)"]:
         db_category = "Handouts"
-    elif text in ["📁 ማስታወሻዎች", "📁 Hubannoo/Notes", "📁 Notes", "📁 ማስታወሻዎች (Notes)", "📁 Hubannoo (Notes)"]:
+    elif text in ["📁 ማስታወሻዎች", "📁 Hubannoo/Notes", "📁 Notes", 
+                  "📁 ማስታወሻዎች (Notes)", "📁 Hubannoo (Notes)"]:
         db_category = "Notes"
-    elif text in ["📝 የሞዴል ጥያቄዎች", "📝 Gaaffii Moodelii", "📝 Model Questions", "📝 የሞዴል ጥያቄዎች (Question Bank)", "📝 Gaaffii Moodelii (Question Bank)", "📝 Model Questions (Question Bank)"]:
+    elif text in ["📝 የሞዴል ጥያቄዎች", "📝 Gaaffii Moodelii", "📝 Model Questions", 
+                  "📝 የሞዴል ጥያቄዎች (Question Bank)", "📝 Gaaffii Moodelii (Question Bank)", 
+                  "📝 Model Questions (Question Bank)"]:
         db_category = "QuestionBank"
-    # 📌 ንዑስ የመጽሐፍ ምድቦች ማጣሪያ
     elif "Literature" in text or "ስነ-ጽሁፍ" in text or "ስነ-ጽሑፍ" in text or "Og-barruu" in text:
         db_category = "Literature"
     elif "Education" in text or "ትምህርት" in text or "Barnoota" in text:
@@ -594,7 +607,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(caption, reply_markup=InlineKeyboardMarkup(inline_kb), parse_mode="Markdown")
         return
 
-    # 📌 በስም በቀጥታ ሲፈልጉ (Exact matching)
+    # 📌 በስም በቀጥታ ሲፈልጉ
     book = db.get_content_by_title(text)
 
     if book:
@@ -614,7 +627,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =====================================================================
-# 💳 የክፍያ እና የአድሚን ውሳኔዎች ማስተናገጃ (CALLBACK QUERY HANDLER)
+# 💳 የክፍያ እና የአድሚን ውሳኔዎች ማስተናገጃ
 # =====================================================================
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -622,7 +635,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = db.get_user_lang(user_id)
 
-    # 📌 [Security Fix #2] የአድሚን-ብቻ ድርጊቶችን ADMIN_ID ካልሆነ ሰው መከልከል
+    # የአድሚን-ብቻ ድርጊቶች ማረጋገጫ
     ADMIN_ONLY_PREFIXES = (
         "pay_app_", "pay_rej_",
         "approve_book_", "reject_book_",
@@ -637,10 +650,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # --- የአድሚን ሁሉንም ይዘቶች ማየት ---
     if data == "admin_view_all":
-        if user_id != ADMIN_ID:
-            await query.answer("⛔ ፈቃድ የለዎትም", show_alert=True)
-            return
-        await query.answer()
         all_contents = db.get_all_contents()
         if not all_contents:
             await context.bot.send_message(chat_id=user_id, text="📭 ምንም ይዘት የለም።")
@@ -661,10 +670,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- የአድሚን አጠቃላይ ሽያጭ ሪፖርት ---
     if data == "admin_sales_report":
-        if user_id != ADMIN_ID:
-            await query.answer("⛔ ፈቃድ የለዎትም", show_alert=True)
-            return
-        await query.answer()
         all_contents = db.get_all_contents()
         total_income = 0.0
         lines = ["📊 **አጠቃላይ የሽያጭ ሪፖርት**", ""]
@@ -680,9 +685,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- አድሚን ፋይል ማውረድ ---
     if data.startswith("admin_download_"):
-        if user_id != ADMIN_ID:
-            await query.answer("⛔ ፈቃድ የለዎትም", show_alert=True)
-            return
         content_id = data.split("_")[2]
         book = db.get_content_by_id(content_id)
         if book and os.path.exists(book['file_path']):
@@ -699,7 +701,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("❌ ፋይሉ አልተገኘም", show_alert=True)
         return
 
-    # --- የክፍያ ፍሰት ማስተናገጃ ---
+    # --- የክፍያ ፍሰት ---
     if data.startswith("buy_"):
         row_id = data.split("_")[1]
         book = db.get_content_by_id(row_id)
@@ -710,9 +712,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     file_path = book['file_path']
                     if os.path.exists(file_path):
-                        if lang == "am": await context.bot.send_message(chat_id=user_id, text=f"✅ ይዘቱ ወደ '📁 የእኔ ላይብረሪ' ተጨምሯል። ፋይሉ እነሆ፣ ቴሌግራም ላይ ብቻ ያንብቡት (ማስቀመጥ/ማስተላለፍ የተከለከለ ነው)፦")
-                        elif lang == "or": await context.bot.send_message(chat_id=user_id, text=f"✅ Kuusaa keessanitti dabalamuun, ፋይሉ ተልኳል (Telegram keessatti qofa dubbisaa)፦")
-                        else: await context.bot.send_message(chat_id=user_id, text=f"✅ Saved to your library. Here is your file — readable in Telegram only (saving/forwarding is disabled):")
+                        if lang == "am": await context.bot.send_message(chat_id=user_id, text=f"✅ ይዘቱ ወደ '📁 የእኔ ላይብረሪ' ተጨምሯል። ፋይሉ እነሆ፦")
+                        elif lang == "or": await context.bot.send_message(chat_id=user_id, text=f"✅ Kuusaa keessanitti dabalamuun, ፋይሉ ተልኳል፦")
+                        else: await context.bot.send_message(chat_id=user_id, text=f"✅ Saved to your library. Here is your file:")
                         
                         async with aiofiles.open(file_path, 'rb') as f:
                             file_data = await f.read()
@@ -727,8 +729,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pay_msg = (
                 f"💳 **የክፍያ መመሪያ ({book['title']})**\n\n"
                 f"እባክዎ **{book['price']} ETB** ወደሚከተለው የቴሌብር (telebirr) ሂሳብ ያስገቡ፦\n\n"
-                f"📱 **የስልክ ቁጥር:** `0947843445`\n"
-                f"👤 **የአካውንት ስም:** `Dawit Megersa`\n\n"
+                f"📱 **የስልክ ቁጥር:** `{TELEBIRR_PHONE}`\n"
+                f"👤 **የአካውንት ስም:** `{TELEBIRR_ACCOUNT_NAME}`\n\n"
                 f"ክፍያውን ከፈጸሙ በኋላ የደረሰኝ ቁጥሩን (Transaction ID/Ref) ለመላክ ከታች ያለውን አዝራር ይጫኑ፦"
             )
             inline_kb = [[InlineKeyboardButton("📩 የደረሰኝ ቁጥር (Ref) አስገባ", callback_data=f"submit_ref_{book['id']}")]]
@@ -759,7 +761,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 file_data = await f.read()
             await context.bot.send_document(chat_id=user_id, document=file_data, filename=os.path.basename(book['file_path']), caption=f"📥 {book['title']}", protect_content=True)
 
-    # --- 👑 አድሚን ክፍያ ሲያጸድቅ (Approve Payment) ---
+    # --- አድሚን ክፍያ ማጽደቅ ---
     elif data.startswith("pay_app_"):
         parts = data.split("_")
         target_uid = int(parts[2])
@@ -772,12 +774,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         book = db.get_content_by_id(book_id)
         if book and os.path.exists(book['file_path']):
-            await context.bot.send_message(chat_id=target_uid, text="✅ ክፍያዎ በአድሚን ተረጋግጧል! ያዘዙት ይዘት ከታች ተልኮልዎታል — ቴሌግራም ላይ ብቻ ያንብቡት (ማስቀመጥ/ማስተላለፍ የተከለከለ ነው)።")
+            await context.bot.send_message(chat_id=target_uid, text="✅ ክፍያዎ በአድሚን ተረጋግጧል! ያዘዙት ይዘት ከታች ተልኮልዎታል።")
             async with aiofiles.open(book['file_path'], 'rb') as f:
                 file_data = await f.read()
             await context.bot.send_document(chat_id=target_uid, document=file_data, filename=os.path.basename(book['file_path']), protect_content=True)
 
-    # --- 👑 አድሚን ክፍያ ውድቅ ሲያደርግ (Reject Payment) ---
+    # --- አድሚን ክፍያ ውድቅ ማድረግ ---
     elif data.startswith("pay_rej_"):
         target_uid = int(data.split("_")[2])
         book_id = int(data.split("_")[3])
@@ -785,14 +787,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.reject_payment(target_uid, book_id)
         
         await query.edit_message_text(text="❌ ክፍያው ውድቅ ተደርጓል።")
-        await context.bot.send_message(chat_id=target_uid, text="❌ ያስገቡት የክፍያ ማረጋገጫ ቁጥር ትክክል ባለመሆኑ በአድሚን ውድቅ ተደርጓል። እባክዎ እንደገና በትክክል ያስገቡ።")
+        await context.bot.send_message(chat_id=target_uid, text="❌ ያስገቡት የክፍያ ማረጋገጫ ቁጥር ትክክል ባለመሆኑ በአድሚን ውድቅ ተደርጓል።")
 
-    # --- 👑 አድሚን መጽሐፍ ሲያጸድቅ (Approve Content) ---
+    # --- አድሚን ይዘት ማጽደቅ ---
     elif data.startswith("approve_book_"):
         book_id = data.split("_")[2]
         res = db.approve_content(book_id)
         
-        await query.edit_message_caption(caption="✅ ይዘቱ በተሳካ ሁኔታ ጽድቋል! አሁን ለሁሉም ተጠቃሚዎች ይታያል።", reply_markup=None)
+        await query.edit_message_caption(caption="✅ ይዘቱ በተሳካ ሁኔታ ጽድቋል!", reply_markup=None)
         if res:
             author_id, book_title = res[0], res[1]
             author_lang = db.get_user_lang(author_id)
@@ -802,7 +804,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             try: await context.bot.send_message(chat_id=author_id, text=auth_msg)
             except: pass
 
-    # --- 👑 አድሚን መጽሐፍ ሲያቀረቅር/ሲከለክል (Reject Content) ---
+    # --- አድሚን ይዘት መከልከል ---
     elif data.startswith("reject_book_"):
         book_id = data.split("_")[2]
         res = db.reject_content(book_id)
@@ -811,13 +813,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if res:
             author_id, book_title = res[0], res[1]
             author_lang = db.get_user_lang(author_id)
-            if author_lang == "am": auth_msg = f"😔 ይቅርታ፣ '{book_title}' የተሰኘው ይዘትዎ በሕግና ደንብ ምክንያት በአድሚን ውድቅ ተደርጓል።"
+            if author_lang == "am": auth_msg = f"😔 ይቅርታ፣ '{book_title}' የተሰኘው ይዘትዎ ተከልክሏል።"
             elif author_lang == "or": auth_msg = f"😔 Gammachuun, qabiyyee keessan '{book_title}' adminiin fudhatama hin arganne."
             else: auth_msg = f"😔 Sorry, your content '{book_title}' has been rejected by the admin."
             try: await context.bot.send_message(chat_id=author_id, text=auth_msg)
             except: pass
 
-    # --- 👑 አድሚን ደራሲ ሲያጸድቅ ---
+    # --- አድሚን ደራሲ ማጽደቅ ---
     elif data.startswith("approve_auth_"):
         target_user_id = data.split("_")[2]
         db.approve_author(target_user_id)
@@ -832,7 +834,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await context.bot.send_message(chat_id=target_user_id, text=auth_msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         except: pass
 
-    # --- 👑 አድሚን ደራሲ ሲከለክል ---
+    # --- አድሚን ደራሲ መከልከል ---
     elif data.startswith("reject_auth_"):
         target_user_id = data.split("_")[2]
         db.reject_author(target_user_id)
@@ -841,12 +843,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =====================================================================
-# 🏁 ዋናው የማስነሻ ክፍል (MAIN FUNCTION)
+# 🏁 ዋናው የማስነሻ ክፍል
 # =====================================================================
 def main():
     if not os.path.exists('files'):
         os.makedirs('files')
-        logging.info("📁 'files' የተባለው ፎልደር በራስ-ሰር በተሳካ ሁኔታ ተፈጥሯል።")
+        logging.info("📁 'files' ፎልደር ተፈጥሯል።")
 
     db.init_db()
     app = Application.builder().token(BOT_TOKEN).build()
@@ -893,8 +895,9 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback)) 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("Kitab Bot (ያልተቀነሰ እና ሙሉ በሙሉ ራሱን የቻለ) በተሳካ ሁኔታ ተነስቷል...")
+    print("✅ Kitab Bot በተሳካ ሁኔታ ተነስቷል...")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+    
