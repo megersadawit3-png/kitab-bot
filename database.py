@@ -1,16 +1,3 @@
-"""
-ðŸ—„ï¸ database.py â€” á‹¨Kitab á‰¦á‰µ á‰¥á‰¸áŠ› á‹¨á‹³á‰³á‰¤á‹ áˆáŠ•áŒ­ (Single Source of Truth)
-
-á‹­áˆ… á‹á‹­áˆ á‰€á‹°áˆ áˆ²áˆ á‰  bot.py á‹áˆµáŒ¥ á‰°á‰ á‰³á‰µáŠá‹ á‹¨áŠá‰ áˆ©á‰µáŠ• áˆáˆ‰áŠ•áˆ á‹¨ SQLite áˆáŠ•áŠ­áˆ½áŠ–á‰½ á‹­á‹­á‹›áˆá¢
-bot.py áˆáŠ•áˆ áŠ á‹­áŠá‰µ á‰€áŒ¥á‰°áŠ› sqlite3.connect() áŒ¥áˆª áˆ˜á‹«á‹ á‹¨áˆˆá‰ á‰µáˆ â€” áˆáˆ‰áˆ á‰ á‹šáˆ… á‹á‹­áˆ
-á‰ áŠ©áˆ á‰¥á‰» á‹«áˆá‹áˆá¢ á‹­áˆ…áˆá¦
-  â€¢ á‹¨áˆµáŠªáˆ› áˆáŠ•áŒ­ áŠ áŠ•á‹µ á‰¥á‰» áŠ¥áŠ•á‹²áˆ†áŠ• (á‹µáˆ­á‰¥áˆ­á‰¥/áŒáŒ­á‰µ áŠ¥áŠ•á‹³á‹­áˆáŒ áˆ­)
-  â€¢ á‰¦á‰µ-áˆŽáŒ‚áŠ­ áŠ¨ DB-áˆŽáŒ‚áŠ­ áŠ¥áŠ•á‹²áˆˆá‹­
-  â€¢ áˆˆá‹ˆá‹°áŠá‰µ áˆˆá‹áŒ¥/áˆ™áŠ¨áˆ« (testing) á‰€áˆ‹áˆ áŠ¥áŠ•á‹²áˆ†áŠ• á‹«á‹°áˆ­áŒ‹áˆá¢
-
-ðŸ“Œ áˆ›áˆµá‰³á‹ˆáˆ»á¦ á‹­áˆ… áŠ•áŒ¹áˆ… "Refactor" á‰¥á‰» áŠá‹ â€” áˆáŠ•áˆ áŠ á‹²áˆµ á‰£áˆ…áˆª (feature) á‹ˆá‹­áˆ á‹¨áˆ´áŠ©áˆªá‰²
-áˆ›áˆµá‰°áŠ«áŠ¨á‹« áŠ áˆá‰°áŒ¨áˆ˜áˆ¨áˆá¢ á‰¦á‰± áˆáŠ­ áŠ¨á‹šáˆ… á‰ áŠá‰µ áŠ¥áŠ•á‹°áŠá‰ áˆ¨á‹ á‰ á‰°áˆ˜áˆ³áˆ³á‹­ áˆ˜áŠ•áŒˆá‹µ á‹­áˆ°áˆ«áˆá¢
-"""
 
 import sqlite3
 import os
@@ -19,22 +6,22 @@ from config import DB_NAME
 
 
 # =====================================================================
-# ðŸ”Œ á‹¨áŒáŠ•áŠ™áŠá‰µ áˆ¨á‹³á‰µ (CONNECTION HELPER)
+# 🔌 የግንኙነት ረዳት (CONNECTION HELPER)
 # =====================================================================
 def _connect():
-    """Row factory á‹¨á‰°á‹˜áŒ‹áŒ€áˆˆá‰µ connection á‹­áˆ˜áˆáˆ³áˆ (dict-like access áˆˆ rows)."""
+    """Row factory የተዘጋጀለት connection ይመልሳል (dict-like access ለ rows)."""
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 # =====================================================================
-# ðŸ—ï¸ áˆµáŠªáˆ› áˆ˜ááŒ áˆªá‹« (SCHEMA INITIALIZATION)
+# 🏗️ ስኪማ መፍጠሪያ (SCHEMA INITIALIZATION)
 # =====================================================================
 def init_db():
     """
-    áˆáˆ‰áŠ•áˆ áŒ áˆ¨áŒ´á‹›á‹Žá‰½ á‹­áˆáŒ¥áˆ«áˆá¢ áŠ¨á‹šáˆ… á‰€á‹°áˆ bot.py áˆ‹á‹­ á‹¨áŠá‰ áˆ¨á‹ "á‹¨á‹µáˆ®/á‹¨á‰°á‰ áˆ‹áˆ¸ áˆµáŠªáˆ› áŠ«áˆˆ
-    áŠ áŒ¥á‹á‹" áˆŽáŒ‚áŠ­ áŠ¥áŠ•á‹³áˆˆ á‰°áŒ á‰¥á‰‹áˆá¢
+    ሁሉንም ጠረጴዛዎች ይፈጥራል። ከዚህ ቀደም bot.py ላይ የነበረው "የድሮ/የተበላሸ ስኪማ ካለ
+    አጥፋው" ሎጂክ እንዳለ ተጠብቋል።
     """
     if os.path.exists(DB_NAME):
         try:
@@ -46,9 +33,9 @@ def init_db():
             conn.close()
             try:
                 os.remove(DB_NAME)
-                logging.info("ðŸ§¹ á‹¨á‹µáˆ®á‹ á‹¨á‰°áˆ³áˆ³á‰° á‹¨á‹³á‰³á‰¤á‹ áŠ á‹ˆá‰ƒá‰€áˆ­ á‰ á‰°áˆ³áŠ« áˆáŠ”á‰³ á‰°á‹ˆáŒá‹·áˆá¢")
+                logging.info("🧹 የድሮው የተሳሳተ የዳታቤዝ አወቃቀር በተሳካ ሁኔታ ተወግዷል።")
             except Exception as e:
-                logging.error(f"á‹¨á‹µáˆ®á‹áŠ• á‹³á‰³á‰¤á‹ áˆ›áŒ¥á‹á‰µ áŠ áˆá‰°á‰»áˆˆáˆ: {e}")
+                logging.error(f"የድሮውን ዳታቤዝ ማጥፋት አልተቻለም: {e}")
 
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -88,9 +75,6 @@ def init_db():
     ''')
 
     # 4. Orders
-    # ðŸ“Œ payment_ref áˆ‹á‹­ UNIQUE áˆ›á‹µáˆ¨áŒ á‹¨áŠá‰ áˆ¨á‰¥áŠ• á‰¢áˆ†áŠ•áˆá£ á‹­áˆ… á‹¨á‰£áˆ…áˆª áˆˆá‹áŒ¥ áˆµáˆˆáˆšá‹«áˆµáŠ¨á‰µáˆ
-    # (á‹«á‹ refactor á‰¥á‰» áŠ¥áŠ•á‹²áˆ†áŠ• áˆµáˆˆáˆáˆˆáŒáˆ…) áˆ†áŠ• á‰¥áˆˆáŠ• áŠ¥áŠ•á‹³áˆˆ "non-unique" á‰µá‰°áŠá‹‹áˆá¢
-    # áˆˆá‹ˆá‹°áŠá‰µ security pass áˆµáŠ•áˆ°áˆ« áŠ á‰¥áˆ¨áŠ• áŠ¥áŠ•áŒ¨áˆáˆ¨á‹‹áˆˆáŠ•á¢
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,12 +85,29 @@ def init_db():
             status TEXT DEFAULT 'pending'
         )
     ''')
+
+    # 📌 [Security Fix] payment_ref (የቴሌብር ግብይት ቁጥር) ድግግሞሽ/ስርቆት እንዳይፈጠር
+    # UNIQUE INDEX እንጨምራለን። 'FREE_DOWNLOAD' ግን በብዙ ተጠቃሚዎች ስለሚደጋገም ከዚህ
+    # ውጪ እናደርገዋለን (partial index)። CREATE UNIQUE INDEX ቀደም ሲል በነበረ
+    # ዳታቤዝ ላይም ደህንነቱ በተጠበቀ መንገድ ይሰራል (migration-safe)።
+    try:
+        cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_unique_payment_ref
+            ON orders(payment_ref)
+            WHERE payment_ref != 'FREE_DOWNLOAD'
+        ''')
+    except sqlite3.IntegrityError:
+        logging.warning(
+            "⚠️ payment_ref ላይ የተደጋገመ ውሂብ ስላለ UNIQUE INDEX መፍጠር አልተቻለም። "
+            "እባክዎ orders ጠረጴዛ ላይ ያሉ duplicate payment_ref ዎችን በእጅ ያጽዱ።"
+        )
+
     conn.commit()
     conn.close()
 
 
 # =====================================================================
-# ðŸ‘¤ á‹¨á‰°áŒ á‰ƒáˆš áˆáŠ•áŠ­áˆ½áŠ–á‰½ (USER FUNCTIONS)
+# 👤 የተጠቃሚ ፈንክሽኖች (USER FUNCTIONS)
 # =====================================================================
 def get_user_lang(telegram_id):
     conn = sqlite3.connect(DB_NAME)
@@ -146,7 +147,7 @@ def set_user_phone(telegram_id, phone):
 
 
 # =====================================================================
-# âœï¸ á‹¨á‹°áˆ«áˆ² áˆáŠ•áŠ­áˆ½áŠ–á‰½ (AUTHOR FUNCTIONS)
+# ✍️ የደራሲ ፈንክሽኖች (AUTHOR FUNCTIONS)
 # =====================================================================
 def is_user_author(telegram_id):
     conn = sqlite3.connect(DB_NAME)
@@ -158,7 +159,7 @@ def is_user_author(telegram_id):
 
 
 def get_author_application_status(telegram_id):
-    """á‹°áˆ«áˆ²á‹ 'pending'/'approved'/'rejected' á‹ˆá‹­áˆ áŒ¨áˆ­áˆ¶ á‹«áˆ‹áˆ˜áˆˆáŠ¨á‰° áŠ¨áˆ†áŠ None á‹­áˆ˜áˆáˆ³áˆá¢"""
+    """ደራሲው 'pending'/'approved'/'rejected' ወይም ጨርሶ ያላመለከተ ከሆነ None ይመልሳል።"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT status FROM authors WHERE user_id = ?", (telegram_id,))
@@ -168,7 +169,7 @@ def get_author_application_status(telegram_id):
 
 
 def register_author_pending(user_id, bio):
-    """áŠ á‹²áˆµ á‹¨á‹°áˆ«áˆ²áŠá‰µ áˆ›áˆ˜áˆáŠ¨á‰» á‰ 'pending' áˆáŠ”á‰³ á‹­áˆ˜á‹˜áŒá‰£áˆ (á‰€á‹µáˆž áŠ«áˆˆ á‰½áˆ‹ á‹­áˆˆá‹‹áˆ)."""
+    """አዲስ የደራሲነት ማመልከቻ በ'pending' ሁኔታ ይመዘግባል (ቀድሞ ካለ ችላ ይለዋል)."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute(
@@ -196,10 +197,10 @@ def reject_author(user_id):
 
 
 # =====================================================================
-# ðŸ“š á‹¨á‹­á‹˜á‰µ áˆáŠ•áŠ­áˆ½áŠ–á‰½ (CONTENT FUNCTIONS)
+# 📚 የይዘት ፈንክሽኖች (CONTENT FUNCTIONS)
 # =====================================================================
 def add_content(author_id, title, category, description, price, file_path):
-    """áŠ á‹²áˆµ á‹­á‹˜á‰µ (pending áˆáŠ”á‰³) á‹­áˆ˜á‹˜áŒá‰£áˆ áŠ¥áŠ“ á‹¨á‰°áˆáŒ áˆ¨á‹áŠ• id á‹­áˆ˜áˆáˆ³áˆá¢"""
+    """አዲስ ይዘት (pending ሁኔታ) ይመዘግባል እና የተፈጠረውን id ይመልሳል።"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -231,7 +232,7 @@ def get_content_by_id(content_id):
 
 
 def get_content_by_title(title):
-    """áˆˆ 'handle_message' exact-match ááˆˆáŒ‹ (áˆµáˆ á‰¥á‰» á‰ á‰µáŠ­áŠ­áˆ áˆ²áŒ»á)."""
+    """ለ 'handle_message' exact-match ፍለጋ (ስም ብቻ በትክክል ሲጻፍ)."""
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM contents WHERE LOWER(title) = LOWER(?) AND status = 'approved'", (title,))
@@ -253,7 +254,7 @@ def execute_search_query(query_text):
 
 
 def approve_content(content_id):
-    """á‹­á‹˜á‰±áŠ• 'approved' á‹«á‹°áˆ­áŒ‹áˆ áŠ¥áŠ“ (author_id, title) á‹­áˆ˜áˆáˆ³áˆ (áˆˆáˆ›áˆ³á‹ˆá‰‚á‹«)."""
+    """ይዘቱን 'approved' ያደርጋል እና (author_id, title) ይመልሳል (ለማሳወቂያ)."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("UPDATE contents SET status = 'approved' WHERE id = ?", (content_id,))
@@ -261,11 +262,11 @@ def approve_content(content_id):
     res = cursor.fetchone()
     conn.commit()
     conn.close()
-    return res  # (author_id, title) á‹ˆá‹­áˆ None
+    return res  # (author_id, title) ወይም None
 
 
 def reject_content(content_id):
-    """á‹­á‹˜á‰±áŠ• 'rejected' á‹«á‹°áˆ­áŒ‹áˆ áŠ¥áŠ“ (author_id, title) á‹­áˆ˜áˆáˆ³áˆ (áˆˆáˆ›áˆ³á‹ˆá‰‚á‹«)."""
+    """ይዘቱን 'rejected' ያደርጋል እና (author_id, title) ይመልሳል (ለማሳወቂያ)."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("UPDATE contents SET status = 'rejected' WHERE id = ?", (content_id,))
@@ -277,17 +278,28 @@ def reject_content(content_id):
 
 
 # =====================================================================
-# ðŸ›’ á‹¨áŒá‹¢/á‰µá‹•á‹›á‹ áˆáŠ•áŠ­áˆ½áŠ–á‰½ (ORDER FUNCTIONS)
+# 🛒 የግዢ/ትዕዛዝ ፈንክሽኖች (ORDER FUNCTIONS)
 # =====================================================================
 def add_order(user_id, content_id, amount, payment_ref, status="pending"):
+    """
+    አዲስ ትዕዛዝ ይመዘግባል። payment_ref ቀድሞ ጥቅም ላይ ከዋለ (UNIQUE constraint ቢጣስ)
+    False ይመልሳል፣ ካልሆነ True ይመልሳል — ጠሪው (caller) ለተጠቃሚው "ይህ ቁጥር ቀድሞ
+    ጥቅም ላይ ውሏል" ብሎ ማሳወቅ ይችላል።
+    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO orders (user_id, content_id, amount, payment_ref, status)
-        VALUES (?, ?, ?, ?, ?)
-    """, (user_id, content_id, amount, payment_ref, status))
-    conn.commit()
-    conn.close()
+    try:
+        cursor.execute("""
+            INSERT INTO orders (user_id, content_id, amount, payment_ref, status)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_id, content_id, amount, payment_ref, status))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
 
 
 def approve_payment(user_id, content_id, payment_ref):
@@ -325,11 +337,28 @@ def get_user_library(telegram_id):
     return [dict(row) for row in rows]
 
 
+def user_owns_content(telegram_id, content_id):
+    """
+    📌 [Security Fix] ተጠቃሚው ይህን ይዘት በትክክል መግዛቱን (orders ላይ
+    status='approved' ያለው መሆኑን) ያረጋግጣል። ለ 'download_' callback
+    ownership ማረጋገጫ ይጠቅማል።
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT 1 FROM orders WHERE user_id = ? AND content_id = ? AND status = 'approved' LIMIT 1",
+        (telegram_id, content_id)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return row is not None
+
+
 # =====================================================================
-# ðŸ‘‘ á‹¨áŠ á‹µáˆšáŠ• á“áŠáˆ áˆ¨á‹³á‰¶á‰½ (ADMIN PANEL HELPERS)
+# 👑 የአድሚን ፓነል ረዳቶች (ADMIN PANEL HELPERS)
 # =====================================================================
 def get_pending_counts():
-    """(pending_books, pending_authors, pending_payments) á‹­áˆ˜áˆáˆ³áˆ â€” áˆˆ admin_panel."""
+    """(pending_books, pending_authors, pending_payments) ይመልሳል — ለ admin_panel."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -344,3 +373,4 @@ def get_pending_counts():
 
     conn.close()
     return pending_books, pending_authors, pending_payments
+  
