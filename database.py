@@ -1,3 +1,10 @@
+"""
+🗄️ database.py — የKitab ቦት ብቸኛ የዳታቤዝ ምንጭ (Single Source of Truth)
+
+ይህ ፋይል ቀደም ሲል በ bot.py ውስጥ ተበታትነው የነበሩትን ሁሉንም የ SQLite ፈንክሽኖች ይይዛል።
+bot.py ምንም አይነት ቀጥተኛ sqlite3.connect() ጥሪ መያዝ የለበትም — ሁሉም በዚህ ፋይል
+በኩል ብቻ ያልፋል።
+"""
 
 import sqlite3
 import os
@@ -20,8 +27,7 @@ def _connect():
 # =====================================================================
 def init_db():
     """
-    ሁሉንም ጠረጴዛዎች ይፈጥራል። ከዚህ ቀደም bot.py ላይ የነበረው "የድሮ/የተበላሸ ስኪማ ካለ
-    አጥፋው" ሎጂክ እንዳለ ተጠብቋል።
+    ሁሉንም ጠረጴዛዎች ይፈጥራል።
     """
     if os.path.exists(DB_NAME):
         try:
@@ -86,10 +92,7 @@ def init_db():
         )
     ''')
 
-    # 📌 [Security Fix] payment_ref (የቴሌብር ግብይት ቁጥር) ድግግሞሽ/ስርቆት እንዳይፈጠር
-    # UNIQUE INDEX እንጨምራለን። 'FREE_DOWNLOAD' ግን በብዙ ተጠቃሚዎች ስለሚደጋገም ከዚህ
-    # ውጪ እናደርገዋለን (partial index)። CREATE UNIQUE INDEX ቀደም ሲል በነበረ
-    # ዳታቤዝ ላይም ደህንነቱ በተጠበቀ መንገድ ይሰራል (migration-safe)።
+    # UNIQUE INDEX for payment_ref
     try:
         cursor.execute('''
             CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_unique_payment_ref
@@ -98,8 +101,7 @@ def init_db():
         ''')
     except sqlite3.IntegrityError:
         logging.warning(
-            "⚠️ payment_ref ላይ የተደጋገመ ውሂብ ስላለ UNIQUE INDEX መፍጠር አልተቻለም። "
-            "እባክዎ orders ጠረጴዛ ላይ ያሉ duplicate payment_ref ዎችን በእጅ ያጽዱ።"
+            "⚠️ payment_ref ላይ የተደጋገመ ውሂብ ስላለ UNIQUE INDEX መፍጠር አልተቻለም።"
         )
 
     conn.commit()
@@ -132,7 +134,9 @@ def save_user_info(telegram_id, username, first_name):
     cursor.execute("""
         INSERT INTO users (telegram_id, username, first_name)
         VALUES (?, ?, ?)
-        ON CONFLICT(telegram_id) DO UPDATE SET username=EXCLUDED.username, first_name=EXCLUDED.first_name
+        ON CONFLICT(telegram_id) DO UPDATE SET 
+            username=EXCLUDED.username, 
+            first_name=EXCLUDED.first_name
     """, (telegram_id, username, first_name))
     conn.commit()
     conn.close()
@@ -159,7 +163,6 @@ def is_user_author(telegram_id):
 
 
 def get_author_application_status(telegram_id):
-    """ደራሲው 'pending'/'approved'/'rejected' ወይም ጨርሶ ያላመለከተ ከሆነ None ይመልሳል።"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT status FROM authors WHERE user_id = ?", (telegram_id,))
@@ -169,7 +172,6 @@ def get_author_application_status(telegram_id):
 
 
 def register_author_pending(user_id, bio):
-    """አዲስ የደራሲነት ማመልከቻ በ'pending' ሁኔታ ይመዘግባል (ቀድሞ ካለ ችላ ይለዋል)."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute(
@@ -200,7 +202,6 @@ def reject_author(user_id):
 # 📚 የይዘት ፈንክሽኖች (CONTENT FUNCTIONS)
 # =====================================================================
 def add_content(author_id, title, category, description, price, file_path):
-    """አዲስ ይዘት (pending ሁኔታ) ይመዘግባል እና የተፈጠረውን id ይመልሳል።"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -232,7 +233,6 @@ def get_content_by_id(content_id):
 
 
 def get_content_by_title(title):
-    """ለ 'handle_message' exact-match ፍለጋ (ስም ብቻ በትክክል ሲጻፍ)."""
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM contents WHERE LOWER(title) = LOWER(?) AND status = 'approved'", (title,))
@@ -254,7 +254,6 @@ def execute_search_query(query_text):
 
 
 def approve_content(content_id):
-    """ይዘቱን 'approved' ያደርጋል እና (author_id, title) ይመልሳል (ለማሳወቂያ)."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("UPDATE contents SET status = 'approved' WHERE id = ?", (content_id,))
@@ -262,11 +261,10 @@ def approve_content(content_id):
     res = cursor.fetchone()
     conn.commit()
     conn.close()
-    return res  # (author_id, title) ወይም None
+    return res
 
 
 def reject_content(content_id):
-    """ይዘቱን 'rejected' ያደርጋል እና (author_id, title) ይመልሳል (ለማሳወቂያ)."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("UPDATE contents SET status = 'rejected' WHERE id = ?", (content_id,))
@@ -281,11 +279,6 @@ def reject_content(content_id):
 # 🛒 የግዢ/ትዕዛዝ ፈንክሽኖች (ORDER FUNCTIONS)
 # =====================================================================
 def add_order(user_id, content_id, amount, payment_ref, status="pending"):
-    """
-    አዲስ ትዕዛዝ ይመዘግባል። payment_ref ቀድሞ ጥቅም ላይ ከዋለ (UNIQUE constraint ቢጣስ)
-    False ይመልሳል፣ ካልሆነ True ይመልሳል — ጠሪው (caller) ለተጠቃሚው "ይህ ቁጥር ቀድሞ
-    ጥቅም ላይ ውሏል" ብሎ ማሳወቅ ይችላል።
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     try:
@@ -338,11 +331,6 @@ def get_user_library(telegram_id):
 
 
 def user_owns_content(telegram_id, content_id):
-    """
-    📌 [Security Fix] ተጠቃሚው ይህን ይዘት በትክክል መግዛቱን (orders ላይ
-    status='approved' ያለው መሆኑን) ያረጋግጣል። ለ 'download_' callback
-    ownership ማረጋገጫ ይጠቅማል።
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute(
@@ -358,7 +346,6 @@ def user_owns_content(telegram_id, content_id):
 # 👑 የአድሚን ፓነል ረዳቶች (ADMIN PANEL HELPERS)
 # =====================================================================
 def get_pending_counts():
-    """(pending_books, pending_authors, pending_payments) ይመልሳል — ለ admin_panel."""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -376,11 +363,9 @@ def get_pending_counts():
 
 
 # =====================================================================
-# 📊 የሽያጭ እና የይዘት ሪፖርት ተግባራት (SALES & CONTENT REPORTING)
+# 📊 የሽያጭ እና የይዘት ሪፖርት ተግባራት
 # =====================================================================
-
 def get_all_contents():
-    """ሁሉንም ይዘቶች (ሁኔታቸው ምንም ይሁን) ይመልሳል። ለአድሚን ይጠቅማል።"""
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM contents ORDER BY id DESC")
@@ -390,7 +375,6 @@ def get_all_contents():
 
 
 def get_author_contents(author_id):
-    """የአንድን ደራሲ ሁሉንም ይዘቶች ይመልሳል።"""
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM contents WHERE author_id = ? ORDER BY id DESC", (author_id,))
@@ -400,7 +384,6 @@ def get_author_contents(author_id):
 
 
 def get_content_sales_count(content_id):
-    """የአንድ ይዘት ጸድቀው የተጠናቀቁ ትዕዛዞች ብዛት ይመልሳል።"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute(
@@ -413,15 +396,9 @@ def get_content_sales_count(content_id):
 
 
 def get_author_sales(author_id):
-    """
-    የአንድ ደራሲ አጠቃላይ የሽያጭ መረጃ ይመልሳል፦
-    ለእያንዳንዱ ይዘት፦ ርዕስ፣ ዋጋ፣ የተሸጠ ብዛት፣ ጠቅላላ ገቢ
-    እንዲሁም አጠቃላይ ገቢን ያሰላል።
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # የደራሲውን ይዘቶች ሁሉ አምጣ
     cursor.execute("SELECT id, title, price FROM contents WHERE author_id = ?", (author_id,))
     contents = cursor.fetchall()
     
