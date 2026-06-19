@@ -444,8 +444,18 @@ async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("❌ Error", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         return ConversationHandler.END
 
-    db.add_order(user.id, content_id, book['price'], tx_ref, status="pending")
-    
+    order_created = db.add_order(user.id, content_id, book['price'], tx_ref, status="pending")
+
+    # 📌 [Security Fix #1] payment_ref ቀድሞ ጥቅም ላይ ከዋለ (UNIQUE constraint ቢጣስ)
+    # ይህ ማለት ይህ የቴሌብር ግብይት ቁጥር ቀድሞ በሌላ (ወይም በራሱ) ትዕዛዝ ላይ ጥቅም ላይ ውሏል
+    # ማለት ነው — ምናልባት የግልባጭ ቁጥር ድግግሞሽ/ሙከራ ሊሆን ይችላል
+    if not order_created:
+        dup_msg = "❌ ይህ የግብይት ቁጥር (Ref) ቀድሞ ጥቅም ላይ ውሏል። እባክዎ ትክክለኛውን ቁጥር በድጋሚ ያስገቡ ወይም ድጋፍ ያግኙ።"
+        if lang == "or": dup_msg = "❌ Lakkoofsi herrega kun (Ref) duraan itti fayyadameera. Maaloo lakkoofsa sirrii deebi'aa galchaa."
+        elif lang == "en": dup_msg = "❌ This transaction reference has already been used. Please enter the correct reference or contact support."
+        await update.message.reply_text(dup_msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+        return ConversationHandler.END
+
     msg = "🙏 የግብይት ቁጥርዎ ተመዝግቧል። በአድሚን ተረጋግጦ ይዘቱ ወዲያውኑ ይላክልዎታል።"
     if lang == "or": msg = "🙏 Lakkoofsi herrega keessanii galmeeffameera. Erga mirkanaa'ee booda isiniif ergama."
     elif lang == "en": msg = "🙏 Your transaction reference has been recorded. Content will be sent after verification."
@@ -563,11 +573,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =====================================================================
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
-    
     data = query.data
     user_id = update.effective_user.id
     lang = db.get_user_lang(user_id)
+
+    # 📌 [Security Fix #2] የአድሚን-ብቻ ድርጊቶችን ADMIN_ID ካልሆነ ሰው መከልከል
+    # (ከዚህ በፊት callback_data ራሱ ላይ ምንም ማረጋገጫ አልነበረውም — ማንኛውም ሰው
+    # callback_data ቢገምት/ቢፈብርክ ራሱን አድሚን አስመስሎ ክፍያ/ይዘት/ደራሲ ማጽደቅ ይችል ነበር)
+    ADMIN_ONLY_PREFIXES = (
+        "pay_app_", "pay_rej_",
+        "approve_book_", "reject_book_",
+        "approve_auth_", "reject_auth_",
+    )
+    if data.startswith(ADMIN_ONLY_PREFIXES) and user_id != ADMIN_ID:
+        await query.answer("⛔ ይህንን ድርጊት ለመፈጸም ፈቃድ የለዎትም።", show_alert=True)
+        return
+
+    await query.answer()
     
     # --- የክፍያ ፍሰት ማስተናገጃ ---
     if data.startswith("buy_"):
@@ -619,6 +641,17 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("download_"):
         content_id = data.split("_")[1]
         book = db.get_content_by_id(content_id)
+
+        # 📌 [Security Fix #3] ይህን ይዘት በትክክል መግዛቱን (ወይም ነፃ መሆኑን) ካላረጋገጥን
+        # በስተቀር አንልክም — ከዚህ በፊት content_id ብቻ የሚያውቅ ማንኛውም ሰው ሳይከፍል
+        # ማውረድ ይችል ነበር
+        if book and not db.user_owns_content(user_id, content_id):
+            no_access_msg = "❌ ይህንን ይዘት አልገዙትም፣ ስለዚህ ማውረድ አይችሉም።"
+            if lang == "or": no_access_msg = "❌ Isin qabiyyee kana hin bitanne, kanaaf buufachuu hin dandeessan."
+            elif lang == "en": no_access_msg = "❌ You haven't purchased this item, so you can't download it."
+            await context.bot.send_message(chat_id=user_id, text=no_access_msg)
+            return
+
         if book and os.path.exists(book['file_path']):
             async with aiofiles.open(book['file_path'], 'rb') as f:
                 file_data = await f.read()
