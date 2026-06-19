@@ -603,13 +603,13 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 try:
                     file_path = book['file_path']
                     if os.path.exists(file_path):
-                        if lang == "am": await context.bot.send_message(chat_id=user_id, text=f"✅ ይዘቱ ወደ '📁 የእኔ ላይብረሪ' ተጨምሯል። ፋይሉ እነሆ፦")
-                        elif lang == "or": await context.bot.send_message(chat_id=user_id, text=f"✅ Kuusaa keessanitti dabalamuun, ፋይሉ ተልኳል፦")
-                        else: await context.bot.send_message(chat_id=user_id, text=f"✅ Saved to your library. Here is your file:")
+                        if lang == "am": await context.bot.send_message(chat_id=user_id, text=f"✅ ይዘቱ ወደ '📁 የእኔ ላይብረሪ' ተጨምሯል። ፋይሉ እነሆ፣ ቴሌግራም ላይ ብቻ ያንብቡት (ማስቀመጥ/ማስተላለፍ የተከለከለ ነው)፦")
+                        elif lang == "or": await context.bot.send_message(chat_id=user_id, text=f"✅ Kuusaa keessanitti dabalamuun, ፋይሉ ተልኳል (Telegram keessatti qofa dubbisaa)፦")
+                        else: await context.bot.send_message(chat_id=user_id, text=f"✅ Saved to your library. Here is your file — readable in Telegram only (saving/forwarding is disabled):")
                         
                         async with aiofiles.open(file_path, 'rb') as f:
                             file_data = await f.read()
-                        await context.bot.send_document(chat_id=user_id, document=file_data, filename=os.path.basename(file_path))
+                        await context.bot.send_document(chat_id=user_id, document=file_data, filename=os.path.basename(file_path), protect_content=True)
                     else:
                         if lang == "am": await context.bot.send_message(chat_id=user_id, text="❌ ይቅርታ፣ የይዘቱ ፋይል በሲስተሙ ላይ አልተገኘም።")
                         else: await context.bot.send_message(chat_id=user_id, text="❌ Sorry, the file was not found on the server.")
@@ -655,7 +655,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if book and os.path.exists(book['file_path']):
             async with aiofiles.open(book['file_path'], 'rb') as f:
                 file_data = await f.read()
-            await context.bot.send_document(chat_id=user_id, document=file_data, filename=os.path.basename(book['file_path']), caption=f"📥 {book['title']}")
+            await context.bot.send_document(chat_id=user_id, document=file_data, filename=os.path.basename(book['file_path']), caption=f"📥 {book['title']}", protect_content=True)
 
     # --- 👑 አድሚን ክፍያ ሲያጸድቅ (Approve Payment) ---
     elif data.startswith("pay_app_"):
@@ -670,10 +670,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         book = db.get_content_by_id(book_id)
         if book and os.path.exists(book['file_path']):
-            await context.bot.send_message(chat_id=target_uid, text="✅ ክፍያዎ በአድሚን ተረጋግጧል! ያዘዙት ይዘት ከታች ተልኮልዎታል።")
+            await context.bot.send_message(chat_id=target_uid, text="✅ ክፍያዎ በአድሚን ተረጋግጧል! ያዘዙት ይዘት ከታች ተልኮልዎታል — ቴሌግራም ላይ ብቻ ያንብቡት (ማስቀመጥ/ማስተላለፍ የተከለከለ ነው)።")
             async with aiofiles.open(book['file_path'], 'rb') as f:
                 file_data = await f.read()
-            await context.bot.send_document(chat_id=target_uid, document=file_data, filename=os.path.basename(book['file_path']))
+            await context.bot.send_document(chat_id=target_uid, document=file_data, filename=os.path.basename(book['file_path']), protect_content=True)
 
     # --- 👑 አድሚን ክፍያ ውድቅ ሲያደርግ (Reject Payment) ---
     elif data.startswith("pay_rej_"):
