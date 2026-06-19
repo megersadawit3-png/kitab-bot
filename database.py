@@ -373,4 +373,77 @@ def get_pending_counts():
 
     conn.close()
     return pending_books, pending_authors, pending_payments
+
+
+# =====================================================================
+# 📊 የሽያጭ እና የይዘት ሪፖርት ተግባራት (SALES & CONTENT REPORTING)
+# =====================================================================
+
+def get_all_contents():
+    """ሁሉንም ይዘቶች (ሁኔታቸው ምንም ይሁን) ይመልሳል። ለአድሚን ይጠቅማል።"""
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM contents ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_author_contents(author_id):
+    """የአንድን ደራሲ ሁሉንም ይዘቶች ይመልሳል።"""
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM contents WHERE author_id = ? ORDER BY id DESC", (author_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_content_sales_count(content_id):
+    """የአንድ ይዘት ጸድቀው የተጠናቀቁ ትዕዛዞች ብዛት ይመልሳል።"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT COUNT(*) FROM orders WHERE content_id = ? AND status = 'approved'",
+        (content_id,)
+    )
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
+def get_author_sales(author_id):
+    """
+    የአንድ ደራሲ አጠቃላይ የሽያጭ መረጃ ይመልሳል፦
+    ለእያንዳንዱ ይዘት፦ ርዕስ፣ ዋጋ፣ የተሸጠ ብዛት፣ ጠቅላላ ገቢ
+    እንዲሁም አጠቃላይ ገቢን ያሰላል።
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
     
+    # የደራሲውን ይዘቶች ሁሉ አምጣ
+    cursor.execute("SELECT id, title, price FROM contents WHERE author_id = ?", (author_id,))
+    contents = cursor.fetchall()
+    
+    result = []
+    total_income = 0.0
+    for content_id, title, price in contents:
+        cursor.execute(
+            "SELECT COUNT(*) FROM orders WHERE content_id = ? AND status = 'approved'",
+            (content_id,)
+        )
+        sales_count = cursor.fetchone()[0]
+        income = sales_count * price
+        total_income += income
+        result.append({
+            "title": title,
+            "price": price,
+            "sales_count": sales_count,
+            "income": income
+        })
+    
+    conn.close()
+    return {
+        "contents": result,
+        "total_income": total_income
+    }
