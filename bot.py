@@ -75,6 +75,73 @@ en_cat_keyboard = [
 # =====================================================================
 # 🗄️ የውስጥ ዳታቤዝ ረዳት ፋንክሽኖች (INLINE DATABASE FUNCTIONS)
 # =====================================================================
+def init_db():
+    # 📌 [ዋና ማስተካከያ] የድሮው የተሳሳተ ዳታቤዝ ካለ ቼክ አድርጎ በማጥፋት አዲሱን ንጹህ መዋቅር ይተካል
+    if os.path.exists(DB_NAME):
+        try:
+            conn = sqlite3.connect(DB_NAME)
+            cursor = conn.cursor()
+            cursor.execute("SELECT telegram_id FROM users LIMIT 1")
+            conn.close()
+        except sqlite3.OperationalError:
+            conn.close()
+            try:
+                os.remove(DB_NAME)
+                logging.info("🧹 የድሮው የተሳሳተ የዳታቤዝ አወቃቀር በተሳካ ሁኔታ ተወግዷል።")
+            except Exception as e:
+                logging.error(f"የድሮውን ዳታቤዝ ማጥፋት አልተቻለም: {e}")
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    # 1. Users Table (telegram_id እና language አምዶችን በትክክል መያዙን ማረጋገጥ)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            telegram_id INTEGER PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            language TEXT DEFAULT 'am',
+            phone TEXT
+        )
+    ''')
+    
+    # 2. Authors Table (biography አምድ መኖሩን ማረጋገጥ)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS authors (
+            user_id INTEGER PRIMARY KEY,
+            status TEXT DEFAULT 'pending',
+            biography TEXT
+        )
+    ''')
+    
+    # 3. Contents Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS contents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            author_id INTEGER,
+            title TEXT,
+            category TEXT,
+            description TEXT,
+            price REAL,
+            file_path TEXT,
+            status TEXT DEFAULT 'pending'
+        )
+    ''')
+    
+    # 4. Orders Table (amount እና payment_ref አምዶች መኖራቸውን ማረጋገጥ)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            content_id INTEGER,
+            amount REAL,
+            payment_ref TEXT,
+            status TEXT DEFAULT 'pending'
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
 def get_user_lang(telegram_id):
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -552,6 +619,7 @@ async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYP
     tx_ref = update.message.text.strip()
     user = update.effective_user
     lang = get_user_lang(user.id)
+    # 📌 [ዋና ማስተካከያ] submit_ref_ ላይ የተቀመጠውን በትክክል buying_book_id ብሎ ያነባል
     content_id = context.user_data.get('buying_book_id')
     
     kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
@@ -561,6 +629,10 @@ async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYP
         return ConversationHandler.END
         
     book = get_content_by_id(content_id)
+    if not book:
+        await update.message.reply_text("❌ Error", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+        return ConversationHandler.END
+
     add_order(user.id, content_id, book['price'], tx_ref, status="pending")
     
     msg = "🙏 የግብይት ቁጥርዎ ተመዝግቧል። በአድሚን ተረጋግጦ ይዘቱ ወዲያውኑ ይላክልዎታል።"
@@ -572,6 +644,7 @@ async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYP
     # ለአድሚን ማሳወቂያ መላክ
     admin_msg = f"💳 **አዲስ የክፍያ ማረጋገጫ ቀርቧል**\n\nተጠቃሚ: @{user.username} ({user.id})\nይዘት: {book['title']}\nዋጋ: {book['price']} ETB\nየቴሌብር Ref: `{tx_ref}`"
     admin_buttons = [[
+        # 📌 [ዋና ማስተካከያ] ለአድሚን አፕሩቫል ፈንክሽኖች ትክክለኛውን parameters እንዲልክ ተደርጓል
         InlineKeyboardButton("✅ ክፍያውን አጽድቅ", callback_data=f"pay_app_{user.id}_{book['id']}_{tx_ref}"),
         InlineKeyboardButton("❌ ውድቅ አድርግ", callback_data=f"pay_rej_{user.id}_{book['id']}")
     ]]
@@ -586,17 +659,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     user_id = update.effective_user.id
     
-    if text == "🇪🇹 አማርኛ":
-        set_user_lang(user_id, "am")
-        await update.message.reply_text("ወደ ዋናው ማውጫ እንኳን በደህና መጡ!", reply_markup=ReplyKeyboardMarkup(am_main_keyboard, resize_keyboard=True))
-        return
-    elif text == "🌳 Afaan Oromoo":
-        set_user_lang(user_id, "or")
-        await update.message.reply_text("Gara menuu gurguddaatti baga nagaan dhuftan!", reply_markup=ReplyKeyboardMarkup(or_main_keyboard, resize_keyboard=True))
-        return
-    elif text == "🇬🇧 English":
-        set_user_lang(user_id, "en")
-        await update.message.reply_text("Welcome to the Main Menu!", reply_markup=ReplyKeyboardMarkup(en_main_keyboard, resize_keyboard=True))
+    if text in lang_keyboard[0]:
+        lang = "am" if "አማርኛ" in text else ("or" if "Oromoo" in text else "en")
+        set_user_lang(user_id, lang)
+        kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
+        msg = "ዋና ማውጫ" if lang == "am" else ("Menuu Gurguddaa" if lang == "or" else "Main Menu")
+        await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         return
 
     lang = get_user_lang(user_id)
@@ -644,7 +712,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         books = get_contents_by_category(db_category)
         
         if not books:
-            if lang == "am": msg = f"😔 ይቅርታ፣ በዚህ ሰዓት በ'{text}' ዘርፍ የተጫነ ይዘት የለም "
+            if lang == "am": msg = f"😔 ይቅርታ፣ በዚህ ሰዓት በ'{text}' ዘርፍ የተጫነ ይዘት የለም።"
             elif lang == "or": msg = f"😔 Dardon, gosa kanaan '{text}' qabiyyee argamu hin jiru."
             else: msg = f"😔 Sorry, there are no items available in the '{text}' category right now."
             await update.message.reply_text(msg)
@@ -721,7 +789,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     logging.error(f"Error sending free file: {e}")
                 return
 
-            # 📌 የሚከፈልበት ከሆነ የቴሌብር ማኑዋል መመሪያ
+            # 📌 የሚከፈልበት ከሆነ የቴሌብር መረጃ መስጠት
             pay_msg = (
                 f"💳 **የክፍያ መመሪያ ({book['title']})**\n\n"
                 f"እባክዎ **{book['price']} ETB** ወደሚከተለው የቴሌብር (telebirr) ሂሳብ ያስገቡ፦\n\n"
@@ -729,6 +797,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"👤 **የአካውንት ስም:** `Dawit Megersa`\n\n"
                 f"ክፍያውን ከፈጸሙ በኋላ የደረሰኝ ቁጥሩን (Transaction ID/Ref) ለመላክ ከታች ያለውን አዝራር ይጫኑ፦"
             )
+            # 📌 [ዋና ማስተካከያ] submit_ref_ በትክክል የመጽሐፉን ID እንዲይዝ ኢንዴክስ 2 ላይ እናስቀምጠዋለን
             inline_kb = [[InlineKeyboardButton("📩 የደረሰኝ ቁጥር (Ref) አስገባ", callback_data=f"submit_ref_{book['id']}")]]
             await context.bot.send_message(chat_id=user_id, text=pay_msg, reply_markup=InlineKeyboardMarkup(inline_kb), parse_mode="Markdown")
 
@@ -867,6 +936,7 @@ def main():
         os.makedirs('files')
         logging.info("📁 'files' የተባለው ፎልደር በራስ-ሰር በተሳካ ሁኔታ ተፈጥሯል።")
 
+    init_db()
     app = Application.builder().token(BOT_TOKEN).build()
     
     # 🔍 የፍለጋ መቆጣጠሪያ ፍሰት (Search Conversation) - r"" የሪጅክስ ቅንፎችን ስህተት ይከላከላል
