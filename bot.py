@@ -644,7 +644,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         books = get_contents_by_category(db_category)
         
         if not books:
-            if lang == "am": msg = f"😔 ይቅርታ፣ በዚህ ሰዓት በ'{text}' ዘርፍ የተጫነ ይዘት የለም。"
+            if lang == "am": msg = f"😔 ይቅርታ፣ በዚህ ሰዓት በ'{text}' ዘርፍ የተጫነ ይዘት የለም "
             elif lang == "or": msg = f"😔 Dardon, gosa kanaan '{text}' qabiyyee argamu hin jiru."
             else: msg = f"😔 Sorry, there are no items available in the '{text}' category right now."
             await update.message.reply_text(msg)
@@ -869,7 +869,7 @@ def main():
 
     app = Application.builder().token(BOT_TOKEN).build()
     
-    # 🔍 የፍለጋ መቆጣጠሪያ ፍሰት (Search Conversation)
+    # 🔍 የፍለጋ መቆጣጠሪያ ፍሰት (Search Conversation) - r"" የሪጅክስ ቅንፎችን ስህተት ይከላከላል
     search_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex(r"^(🔍 ፈልግ \(Search\)|🔍 Barbaadi \(Search\)|🔍 Search)$"), start_search)],
         states={AWAITING_SEARCH_QUERY: [MessageHandler(filters.TEXT & ~filters.COMMAND, execute_search)]},
@@ -917,7 +917,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-```
-eof
-
-ይህንን ኮድ ሙሉ በሙሉ በ `bot.py` ፋይል ላይ ተክተህ መጠቀም ትችላለህ። አሁን የሲንታክስ ስህተቱ ሙሉ በሙሉ በመፈታቱ ቦቱ ያለምንም እንከን በስኬት ይነሳል። ማናቸውንም ተጨማሪ እርዳታ ከፈለግክ ንገረኝ!
