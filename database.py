@@ -1,9 +1,6 @@
+
 """
 🗄️ database.py — የKitab ቦት ብቸኛ የዳታቤዝ ምንጭ (Single Source of Truth)
-
-ይህ ፋይል ቀደም ሲል በ bot.py ውስጥ ተበታትነው የነበሩትን ሁሉንም የ SQLite ፈንክሽኖች ይይዛል።
-bot.py ምንም አይነት ቀጥተኛ sqlite3.connect() ጥሪ መያዝ የለበትም — ሁሉም በዚህ ፋይል
-በኩል ብቻ ያልፋል።
 """
 
 import sqlite3
@@ -424,3 +421,120 @@ def get_author_sales(author_id):
         "contents": result,
         "total_income": total_income
     }
+
+
+# =====================================================================
+# 🆕 አዲስ የተጨመሩ ተግባራት (NEW FUNCTIONS)
+# =====================================================================
+
+def get_author_rankings(limit=10):
+    """
+    🏆 ከፍተኛ ገቢ ያላቸውን ደራሲያን ይመልሳል
+    ለአድሚን ቦት "ከፍተኛ ደራሲያን" ሪፖርት
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 
+            a.user_id,
+            u.first_name,
+            u.username,
+            COUNT(o.id) as total_sales,
+            SUM(o.amount) as total_income,
+            COUNT(DISTINCT c.id) as total_books
+        FROM authors a
+        JOIN contents c ON a.user_id = c.author_id
+        JOIN orders o ON c.id = o.content_id
+        JOIN users u ON a.user_id = u.telegram_id
+        WHERE o.status = 'approved' AND a.status = 'approved'
+        GROUP BY a.user_id
+        ORDER BY total_income DESC
+        LIMIT ?
+    """, (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_category_stats():
+    """
+    📈 በምድብ የሽያጭ ስታቲስቲክስ
+    ለአድሚን ቦት "በምድብ ስታቲስቲክስ" ሪፖርት
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 
+            c.category,
+            COUNT(DISTINCT c.id) as total_books,
+            COUNT(o.id) as total_sales,
+            SUM(o.amount) as total_income
+        FROM contents c
+        LEFT JOIN orders o ON c.id = o.content_id AND o.status = 'approved'
+        WHERE c.status = 'approved'
+        GROUP BY c.category
+        ORDER BY total_income DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_user_stats():
+    """
+    👤 የተጠቃሚ ስታቲስቲክስ
+    ለአድሚን ቦት "የተጠቃሚ ዝርዝር"
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT COUNT(*) FROM users")
+    total_users = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM authors WHERE status = 'approved'")
+    total_authors = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM orders WHERE status = 'approved'")
+    total_orders = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM contents WHERE status = 'approved'")
+    total_contents = cursor.fetchone()[0]
+    
+    conn.close()
+    return {
+        "total_users": total_users,
+        "total_authors": total_authors,
+        "total_orders": total_orders,
+        "total_contents": total_contents
+    }
+
+
+def get_all_users(limit=50, offset=0):
+    """👤 የተጠቃሚ ዝርዝር ይመልሳል"""
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT telegram_id, username, first_name, language, phone 
+        FROM users 
+        ORDER BY telegram_id 
+        LIMIT ? OFFSET ?
+    """, (limit, offset))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def search_users(query):
+    """👤 ተጠቃሚዎችን በስም ወይም በID ይፈልጋል"""
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT telegram_id, username, first_name, language, phone 
+        FROM users 
+        WHERE telegram_id LIKE ? OR username LIKE ? OR first_name LIKE ?
+        ORDER BY telegram_id
+        LIMIT 20
+    """, (f"%{query}%", f"%{query}%", f"%{query}%"))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
