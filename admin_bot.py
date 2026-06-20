@@ -1,376 +1,540 @@
-import logging
+"""
+🗄️ database.py — የKitab ቦት ብቸኛ የዳታቤዝ ምንጭ (Single Source of Truth)
+"""
+
+import sqlite3
 import os
-import aiofiles
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
-from config import ADMIN_BOT_TOKEN, ADMIN_ID
-import database as db
-
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+import logging
+from config import DB_NAME
 
 
 # =====================================================================
-# 👑 የአድሚን ቦት ዋና ትዕዛዞች
+# 🔌 የግንኙነት ረዳት (CONNECTION HELPER)
 # =====================================================================
+def _connect():
+    """Row factory የተዘጋጀለት connection ይመልሳል (dict-like access ለ rows)."""
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የአድሚን ቦት መጀመሪያ"""
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("⛔ ይህ ቦት ለአድሚን ብቻ ነው!")
-        return
-    
-    keyboard = [
-        [InlineKeyboardButton("📚 ሁሉንም ይዘቶች ይመልከቱ", callback_data="admin_view_all")],
-        [InlineKeyboardButton("📊 አጠቃላይ ሽያጭ ሪፖርት", callback_data="admin_sales_report")],
-        [InlineKeyboardButton("👤 በግምገማ ላይ ያሉ ደራሲያን", callback_data="admin_pending_authors")],
-        [InlineKeyboardButton("📝 በግምገማ ላይ ያሉ ይዘቶች", callback_data="admin_pending_books")],
-        [InlineKeyboardButton("💳 በግምገማ ላይ ያሉ ክፍያዎች", callback_data="admin_pending_payments")],
-        [InlineKeyboardButton("📊 የደራሲ ሽያጭ ፈልግ", callback_data="admin_find_author")],
-        [InlineKeyboardButton("📥 ፋይል አውርድ (በID)", callback_data="admin_download_by_id")],
-    ]
-    await update.message.reply_text(
-        "👑 **Kitab Admin Bot**\n\nከታች ካሉት አማራጮች ይምረጡ፦",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
+
+# =====================================================================
+# 🏗️ ስኪማ መፍጠሪያ (SCHEMA INITIALIZATION)
+# =====================================================================
+def init_db():
+    """
+    ሁሉንም ጠረጴዛዎች ይፈጥራል።
+    """
+    if os.path.exists(DB_NAME):
+        try:
+            conn = sqlite3.connect(DB_NAME)
+            cursor = conn.cursor()
+            cursor.execute("SELECT telegram_id FROM users LIMIT 1")
+            conn.close()
+        except sqlite3.OperationalError:
+            conn.close()
+            try:
+                os.remove(DB_NAME)
+                logging.info("🧹 የድሮው የተሳሳተ የዳታቤዝ አወቃቀር በተሳካ ሁኔታ ተወግዷል።")
+            except Exception as e:
+                logging.error(f"የድሮውን ዳታቤዝ ማጥፋት አልተቻለም: {e}")
+
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    # 1. Users
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            telegram_id INTEGER PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            language TEXT DEFAULT 'am',
+            phone TEXT
+        )
+    ''')
+
+    # 2. Authors
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS authors (
+            user_id INTEGER PRIMARY KEY,
+            status TEXT DEFAULT 'pending',
+            biography TEXT
+        )
+    ''')
+
+    # 3. Contents
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS contents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            author_id INTEGER,
+            title TEXT,
+            category TEXT,
+            description TEXT,
+            price REAL,
+            file_path TEXT,
+            status TEXT DEFAULT 'pending'
+        )
+    ''')
+
+    # 4. Orders
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            content_id INTEGER,
+            amount REAL,
+            payment_ref TEXT,
+            status TEXT DEFAULT 'pending'
+        )
+    ''')
+
+    # UNIQUE INDEX for payment_ref
+    try:
+        cursor.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_unique_payment_ref
+            ON orders(payment_ref)
+            WHERE payment_ref != 'FREE_DOWNLOAD'
+        ''')
+    except sqlite3.IntegrityError:
+        logging.warning(
+            "⚠️ payment_ref ላይ የተደጋገመ ውሂብ ስላለ UNIQUE INDEX መፍጠር አልተቻለም።"
+        )
+
+    conn.commit()
+    conn.close()
+
+
+# =====================================================================
+# 👤 የተጠቃሚ ፈንክሽኖች (USER FUNCTIONS)
+# =====================================================================
+def get_user_lang(telegram_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT language FROM users WHERE telegram_id = ?", (telegram_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if (row and row[0]) else "am"
+
+
+def set_user_lang(telegram_id, lang):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET language = ? WHERE telegram_id = ?", (lang, telegram_id))
+    conn.commit()
+    conn.close()
+
+
+def save_user_info(telegram_id, username, first_name):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO users (telegram_id, username, first_name)
+        VALUES (?, ?, ?)
+        ON CONFLICT(telegram_id) DO UPDATE SET 
+            username=EXCLUDED.username, 
+            first_name=EXCLUDED.first_name
+    """, (telegram_id, username, first_name))
+    conn.commit()
+    conn.close()
+
+
+def set_user_phone(telegram_id, phone):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET phone = ? WHERE telegram_id = ?", (phone, telegram_id))
+    conn.commit()
+    conn.close()
+
+
+# =====================================================================
+# ✍️ የደራሲ ፈንክሽኖች (AUTHOR FUNCTIONS)
+# =====================================================================
+def is_user_author(telegram_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT status FROM authors WHERE user_id = ? AND status = 'approved'", (telegram_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row is not None
+
+
+def get_author_application_status(telegram_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT status FROM authors WHERE user_id = ?", (telegram_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def register_author_pending(user_id, bio):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "INSERT OR IGNORE INTO authors (user_id, status, biography) VALUES (?, 'pending', ?)",
+        (user_id, bio)
     )
+    conn.commit()
+    conn.close()
 
 
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የአድሚን ቦት ካልባክ አያያዥ"""
-    query = update.callback_query
-    data = query.data
-    user_id = update.effective_user.id
-    
-    if user_id != ADMIN_ID:
-        await query.answer("⛔ ፈቃድ የለዎትም", show_alert=True)
-        return
-    
-    await query.answer()
+def approve_author(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE authors SET status = 'approved' WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
 
-    # --- ሁሉንም ይዘቶች ማየት ---
-    if data == "admin_view_all":
-        all_contents = db.get_all_contents()
-        if not all_contents:
-            await query.edit_message_text("📭 ምንም ይዘት የለም።")
-            return
-        
-        for content in all_contents:
-            sales_count = db.get_content_sales_count(content['id'])
-            status_emoji = "✅" if content['status'] == 'approved' else ("⏳" if content['status'] == 'pending' else "❌")
-            caption = (
-                f"📌 **{content['title']}**\n"
-                f"🆔 ID: `{content['id']}`\n"
-                f"👤 ደራሲ ID: {content['author_id']}\n"
-                f"💰 {content['price']} ETB\n"
-                f"📊 ሽያጭ: {sales_count}\n"
-                f"📝 ሁኔታ: {status_emoji} {content['status']}\n"
-                f"📄 ፋይል: `{content['file_path']}`"
-            )
-            keyboard = [[
-                InlineKeyboardButton("📥 አውርድ", callback_data=f"admin_dl_{content['id']}"),
-                InlineKeyboardButton("📝 አርትዕ", callback_data=f"admin_edit_{content['id']}")
-            ]]
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=caption,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-        await query.edit_message_text("✅ ሁሉም ይዘቶች ተልከዋል።")
 
-    # --- ፋይል ማውረድ ---
-    elif data.startswith("admin_dl_"):
-        content_id = data.split("_")[2]
-        book = db.get_content_by_id(content_id)
-        if book and os.path.exists(book['file_path']):
-            async with aiofiles.open(book['file_path'], 'rb') as f:
-                file_data = await f.read()
-            await context.bot.send_document(
-                chat_id=user_id,
-                document=file_data,
-                filename=os.path.basename(book['file_path']),
-                caption=f"📥 {book['title']}"
-            )
-            await query.answer("✅ ፋይሉ ተልኳል")
-        else:
-            await query.answer("❌ ፋይሉ አልተገኘም", show_alert=True)
+def reject_author(user_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE authors SET status = 'rejected' WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
 
-    # --- አጠቃላይ ሽያጭ ሪፖርት ---
-    elif data == "admin_sales_report":
-        all_contents = db.get_all_contents()
-        total_income = 0.0
-        lines = ["📊 **አጠቃላይ የሽያጭ ሪፖርት**", ""]
-        for content in all_contents:
-            sales = db.get_content_sales_count(content['id'])
-            income = sales * content['price']
-            total_income += income
-            lines.append(f"📌 {content['title']} — {sales} ጊዜ — {income} ETB")
-        lines.append("")
-        lines.append(f"💰 **ጠቅላላ ገቢ:** {total_income} ETB")
-        await query.edit_message_text("\n".join(lines), parse_mode="Markdown")
 
-    # --- በግምገማ ላይ ያሉ ደራሲያን ---
-    elif data == "admin_pending_authors":
-        conn = db._connect()
-        cursor = conn.cursor()
-        cursor.execute("SELECT user_id, biography FROM authors WHERE status = 'pending'")
-        authors = cursor.fetchall()
-        conn.close()
-        
-        if not authors:
-            await query.edit_message_text("✅ በግምገማ ላይ ያሉ ደራሲያን የሉም።")
-            return
-        
-        for author in authors:
-            msg = (
-                f"👤 **ደራሲ ID:** `{author['user_id']}`\n"
-                f"📝 ባዮግራፊ: {author['biography']}"
-            )
-            keyboard = [[
-                InlineKeyboardButton("✅ ፍቀድ", callback_data=f"admin_app_auth_{author['user_id']}"),
-                InlineKeyboardButton("❌ ከልክል", callback_data=f"admin_rej_auth_{author['user_id']}")
-            ]]
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=msg,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-        await query.edit_message_text("✅ በግምገማ ላይ ያሉ ደራሲያን ተልከዋል።")
+# =====================================================================
+# 📚 የይዘት ፈንክሽኖች (CONTENT FUNCTIONS)
+# =====================================================================
+def add_content(author_id, title, category, description, price, file_path):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO contents (author_id, title, category, description, price, file_path, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending')
+    """, (author_id, title, category, description, price, file_path))
+    inserted_id = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return inserted_id
 
-    # --- ደራሲ ማጽደቅ/መከልከል ---
-    elif data.startswith("admin_app_auth_"):
-        target_id = int(data.split("_")[3])
-        db.approve_author(target_id)
-        await query.edit_message_text(f"✅ ደራሲ `{target_id}` ጽድቋል!")
-        await context.bot.send_message(
-            chat_id=target_id,
-            text="🎉 የደራሲነት ማመልከቻዎ ተጽድቋል! አሁን ይዘቶችን መጫን ይችላሉ።"
-        )
 
-    elif data.startswith("admin_rej_auth_"):
-        target_id = int(data.split("_")[3])
-        db.reject_author(target_id)
-        await query.edit_message_text(f"❌ ደራሲ `{target_id}` ተከልክሏል።")
+def get_contents_by_category(category):
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM contents WHERE category = ? AND status = 'approved'", (category,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
-    # --- በግምገማ ላይ ያሉ ይዘቶች ---
-    elif data == "admin_pending_books":
-        conn = db._connect()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM contents WHERE status = 'pending'")
-        books = cursor.fetchall()
-        conn.close()
-        
-        if not books:
-            await query.edit_message_text("✅ በግምገማ ላይ ያሉ ይዘቶች የሉም።")
-            return
-        
-        for book in books:
-            caption = (
-                f"📌 **{book['title']}**\n"
-                f"🆔 ID: `{book['id']}`\n"
-                f"👤 ደራሲ ID: {book['author_id']}\n"
-                f"💰 {book['price']} ETB\n"
-                f"📝 {book['description']}"
-            )
-            keyboard = [[
-                InlineKeyboardButton("✅ ፍቀድ", callback_data=f"admin_app_book_{book['id']}"),
-                InlineKeyboardButton("❌ ከልክል", callback_data=f"admin_rej_book_{book['id']}")
-            ]]
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=caption,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-        await query.edit_message_text("✅ በግምገማ ላይ ያሉ ይዘቶች ተልከዋል።")
 
-    # --- ይዘት ማጽደቅ/መከልከል ---
-    elif data.startswith("admin_app_book_"):
-        book_id = int(data.split("_")[3])
-        res = db.approve_content(book_id)
-        await query.edit_message_text(f"✅ ይዘት `{book_id}` ጽድቋል!")
-        if res:
-            author_id, title = res
-            await context.bot.send_message(
-                chat_id=author_id,
-                text=f"🎉 '{title}' የተሰኘው ይዘትዎ ተጽድቋል!"
-            )
+def get_content_by_id(content_id):
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM contents WHERE id = ?", (content_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
 
-    elif data.startswith("admin_rej_book_"):
-        book_id = int(data.split("_")[3])
-        res = db.reject_content(book_id)
-        await query.edit_message_text(f"❌ ይዘት `{book_id}` ተከልክሏል።")
-        if res:
-            author_id, title = res
-            await context.bot.send_message(
-                chat_id=author_id,
-                text=f"😔 '{title}' የተሰኘው ይዘትዎ ተከልክሏል።"
-            )
 
-    # --- በግምገማ ላይ ያሉ ክፍያዎች ---
-    elif data == "admin_pending_payments":
-        conn = db._connect()
-        cursor = conn.cursor()
+def get_content_by_title(title):
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM contents WHERE LOWER(title) = LOWER(?) AND status = 'approved'", (title,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def execute_search_query(query_text):
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM contents WHERE (title LIKE ? OR description LIKE ?) AND status = 'approved'",
+        (f"%{query_text}%", f"%{query_text}%")
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def approve_content(content_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE contents SET status = 'approved' WHERE id = ?", (content_id,))
+    cursor.execute("SELECT author_id, title FROM contents WHERE id = ?", (content_id,))
+    res = cursor.fetchone()
+    conn.commit()
+    conn.close()
+    return res
+
+
+def reject_content(content_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE contents SET status = 'rejected' WHERE id = ?", (content_id,))
+    cursor.execute("SELECT author_id, title FROM contents WHERE id = ?", (content_id,))
+    res = cursor.fetchone()
+    conn.commit()
+    conn.close()
+    return res
+
+
+# =====================================================================
+# 🛒 የግዢ/ትዕዛዝ ፈንክሽኖች (ORDER FUNCTIONS)
+# =====================================================================
+def add_order(user_id, content_id, amount, payment_ref, status="pending"):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    try:
         cursor.execute("""
-            SELECT o.*, c.title FROM orders o
-            JOIN contents c ON o.content_id = c.id
-            WHERE o.status = 'pending'
-        """)
-        payments = cursor.fetchall()
+            INSERT INTO orders (user_id, content_id, amount, payment_ref, status)
+            VALUES (?, ?, ?, ?, ?)
+        """, (user_id, content_id, amount, payment_ref, status))
+        conn.commit()
+        return True
+    except sqlite3.IntegrityError:
+        conn.rollback()
+        return False
+    finally:
         conn.close()
-        
-        if not payments:
-            await query.edit_message_text("✅ በግምገማ ላይ ያሉ ክፍያዎች የሉም።")
-            return
-        
-        for payment in payments:
-            msg = (
-                f"💳 **ክፍያ**\n"
-                f"📌 ይዘት: {payment['title']}\n"
-                f"👤 ተጠቃሚ ID: {payment['user_id']}\n"
-                f"💰 {payment['amount']} ETB\n"
-                f"📝 Ref: `{payment['payment_ref']}`"
-            )
-            keyboard = [[
-                InlineKeyboardButton("✅ አጽድቅ", callback_data=f"admin_app_pay_{payment['user_id']}_{payment['content_id']}_{payment['payment_ref']}"),
-                InlineKeyboardButton("❌ ውድቅ", callback_data=f"admin_rej_pay_{payment['user_id']}_{payment['content_id']}")
-            ]]
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=msg,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-        await query.edit_message_text("✅ በግምገማ ላይ ያሉ ክፍያዎች ተልከዋል።")
-
-    # --- ክፍያ ማጽደቅ/መከልከል ---
-    elif data.startswith("admin_app_pay_"):
-        parts = data.split("_")
-        target_uid = int(parts[3])
-        content_id = int(parts[4])
-        tx_ref = parts[5]
-        
-        db.approve_payment(target_uid, content_id, tx_ref)
-        await query.edit_message_text(f"✅ ክፍያ ጽድቋል!")
-        
-        book = db.get_content_by_id(content_id)
-        if book and os.path.exists(book['file_path']):
-            async with aiofiles.open(book['file_path'], 'rb') as f:
-                file_data = await f.read()
-            await context.bot.send_document(
-                chat_id=target_uid,
-                document=file_data,
-                filename=os.path.basename(book['file_path']),
-                caption="✅ ክፍያዎ ጽድቋል! ይህንን ይዘት በደህና ያውርዱ።"
-            )
-
-    elif data.startswith("admin_rej_pay_"):
-        target_uid = int(data.split("_")[3])
-        content_id = int(data.split("_")[4])
-        db.reject_payment(target_uid, content_id)
-        await query.edit_message_text(f"❌ ክፍያ ውድቅ ተደርጓል።")
-        await context.bot.send_message(
-            chat_id=target_uid,
-            text="❌ ያስገቡት የክፍያ ማረጋገጫ ቁጥር ተከልክሏል። እባክዎ እንደገና ይሞክሩ።"
-        )
-
-    # --- የደራሲ ሽያጭ ፈልግ ---
-    elif data == "admin_find_author":
-        await query.edit_message_text(
-            "👤 የደራሲውን ቴሌግራም መታወቂያ (ID) ያስገቡ፦\n\n"
-            "ለምሳሌ: `123456789`\n\n"
-            "ወይም /cancel በማለት ይቅሩ።"
-        )
-        context.user_data['admin_action'] = 'find_author'
-        return
-
-    # --- ፋይል በID አውርድ ---
-    elif data == "admin_download_by_id":
-        await query.edit_message_text(
-            "📥 የሚወርዱትን ይዘት ID ያስገቡ፦\n\n"
-            "ለምሳሌ: `15`\n\n"
-            "ወይም /cancel በማለት ይቅሩ።"
-        )
-        context.user_data['admin_action'] = 'download_by_id'
-        return
 
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የአድሚን ቦት የጽሑፍ መልዕክት አያያዥ"""
-    user_id = update.effective_user.id
-    if user_id != ADMIN_ID:
-        await update.message.reply_text("⛔ ፈቃድ የለዎትም")
-        return
-    
-    text = update.message.text.strip()
-    action = context.user_data.get('admin_action')
-    
-    if action == 'find_author':
-        try:
-            author_id = int(text)
-            sales_data = db.get_author_sales(author_id)
-            
-            if not sales_data['contents']:
-                await update.message.reply_text(f"📭 ደራሲ `{author_id}` ምንም ይዘት የለውም።")
-            else:
-                lines = [f"📊 **የደራሲ {author_id} ሽያጭ ሪፖርት**", ""]
-                for item in sales_data['contents']:
-                    lines.append(f"📌 {item['title']} — {item['sales_count']} ጊዜ — {item['income']} ETB")
-                lines.append("")
-                lines.append(f"💰 **ጠቅላላ ገቢ:** {sales_data['total_income']} ETB")
-                await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
-        except ValueError:
-            await update.message.reply_text("❌ እባክዎ ትክክለኛ ቁጥር ያስገቡ።")
-        
-        context.user_data['admin_action'] = None
-        await start(update, context)
-    
-    elif action == 'download_by_id':
-        try:
-            content_id = int(text)
-            book = db.get_content_by_id(content_id)
-            if book and os.path.exists(book['file_path']):
-                async with aiofiles.open(book['file_path'], 'rb') as f:
-                    file_data = await f.read()
-                await context.bot.send_document(
-                    chat_id=user_id,
-                    document=file_data,
-                    filename=os.path.basename(book['file_path']),
-                    caption=f"📥 {book['title']}"
-                )
-            else:
-                await update.message.reply_text(f"❌ ይዘት ID `{text}` አልተገኘም ወይም ፋይሉ የለም።")
-        except ValueError:
-            await update.message.reply_text("❌ እባክዎ ትክክለኛ ቁጥር ያስገቡ።")
-        
-        context.user_data['admin_action'] = None
-        await start(update, context)
-    
-    else:
-        await update.message.reply_text("❌ ያልታወቀ ትዕዛዝ። እባክዎ /start ይጫኑ።")
+def approve_payment(user_id, content_id, payment_ref):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE orders SET status = 'approved' WHERE user_id = ? AND content_id = ? AND payment_ref = ?",
+        (user_id, content_id, payment_ref)
+    )
+    conn.commit()
+    conn.close()
 
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የአሁኑን ድርጊት ይሰርዛል"""
-    context.user_data['admin_action'] = None
-    await update.message.reply_text("✅ ተሰርዟል።")
-    await start(update, context)
+def reject_payment(user_id, content_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE orders SET status = 'rejected' WHERE user_id = ? AND content_id = ?",
+        (user_id, content_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_user_library(telegram_id):
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT c.* FROM contents c
+        JOIN orders o ON c.id = o.content_id
+        WHERE o.user_id = ? AND o.status = 'approved'
+    """, (telegram_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def user_owns_content(telegram_id, content_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT 1 FROM orders WHERE user_id = ? AND content_id = ? AND status = 'approved' LIMIT 1",
+        (telegram_id, content_id)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return row is not None
 
 
 # =====================================================================
-# 🏁 ዋናው የማስነሻ ክፍል
+# 👑 የአድሚን ፓነል ረዳቶች (ADMIN PANEL HELPERS)
 # =====================================================================
-def main():
-    app = Application.builder().token(ADMIN_BOT_TOKEN).build()
-    
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("cancel", cancel))
-    app.add_handler(CallbackQueryHandler(handle_callback))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    
-    print("👑 Admin Bot በተሳካ ሁኔታ ተነስቷል...")
-    app.run_polling()
+def get_pending_counts():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
 
-if __name__ == "__main__":
-    main()
+    cursor.execute("SELECT COUNT(*) FROM contents WHERE status = 'pending'")
+    pending_books = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM authors WHERE status = 'pending'")
+    pending_authors = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM orders WHERE status = 'pending'")
+    pending_payments = cursor.fetchone()[0]
+
+    conn.close()
+    return pending_books, pending_authors, pending_payments
+
+
+# =====================================================================
+# 📊 የሽያጭ እና የይዘት ሪፖርት ተግባራት
+# =====================================================================
+def get_all_contents():
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM contents ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_author_contents(author_id):
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM contents WHERE author_id = ? ORDER BY id DESC", (author_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_content_sales_count(content_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT COUNT(*) FROM orders WHERE content_id = ? AND status = 'approved'",
+        (content_id,)
+    )
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+
+def get_author_sales(author_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT id, title, price FROM contents WHERE author_id = ?", (author_id,))
+    contents = cursor.fetchall()
+    
+    result = []
+    total_income = 0.0
+    for content_id, title, price in contents:
+        cursor.execute(
+            "SELECT COUNT(*) FROM orders WHERE content_id = ? AND status = 'approved'",
+            (content_id,)
+        )
+        sales_count = cursor.fetchone()[0]
+        income = sales_count * price
+        total_income += income
+        result.append({
+            "title": title,
+            "price": price,
+            "sales_count": sales_count,
+            "income": income
+        })
+    
+    conn.close()
+    return {
+        "contents": result,
+        "total_income": total_income
+    }
+
+
+# =====================================================================
+# 🆕 አዲስ የተጨመሩ ተግባራት (NEW FUNCTIONS)
+# =====================================================================
+
+def get_author_rankings(limit=10):
+    """
+    🏆 ከፍተኛ ገቢ ያላቸውን ደራሲያን ይመልሳል
+    ለአድሚን ቦት "ከፍተኛ ደራሲያን" ሪፖርት
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 
+            a.user_id,
+            u.first_name,
+            u.username,
+            COUNT(o.id) as total_sales,
+            SUM(o.amount) as total_income,
+            COUNT(DISTINCT c.id) as total_books
+        FROM authors a
+        JOIN contents c ON a.user_id = c.author_id
+        JOIN orders o ON c.id = o.content_id
+        JOIN users u ON a.user_id = u.telegram_id
+        WHERE o.status = 'approved' AND a.status = 'approved'
+        GROUP BY a.user_id
+        ORDER BY total_income DESC
+        LIMIT ?
+    """, (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_category_stats():
+    """
+    📈 በምድብ የሽያጭ ስታቲስቲክስ
+    ለአድሚን ቦት "በምድብ ስታቲስቲክስ" ሪፖርት
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 
+            c.category,
+            COUNT(DISTINCT c.id) as total_books,
+            COUNT(o.id) as total_sales,
+            SUM(o.amount) as total_income
+        FROM contents c
+        LEFT JOIN orders o ON c.id = o.content_id AND o.status = 'approved'
+        WHERE c.status = 'approved'
+        GROUP BY c.category
+        ORDER BY total_income DESC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_user_stats():
+    """
+    👤 የተጠቃሚ ስታቲስቲክስ
+    ለአድሚን ቦት "የተጠቃሚ ዝርዝር"
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT COUNT(*) FROM users")
+    total_users = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM authors WHERE status = 'approved'")
+    total_authors = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM orders WHERE status = 'approved'")
+    total_orders = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM contents WHERE status = 'approved'")
+    total_contents = cursor.fetchone()[0]
+    
+    conn.close()
+    return {
+        "total_users": total_users,
+        "total_authors": total_authors,
+        "total_orders": total_orders,
+        "total_contents": total_contents
+    }
+
+
+def get_all_users(limit=50, offset=0):
+    """👤 የተጠቃሚ ዝርዝር ይመልሳል"""
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT telegram_id, username, first_name, language, phone 
+        FROM users 
+        ORDER BY telegram_id 
+        LIMIT ? OFFSET ?
+    """, (limit, offset))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def search_users(query):
+    """👤 ተጠቃሚዎችን በስም ወይም በID ይፈልጋል"""
+    conn = _connect()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT telegram_id, username, first_name, language, phone 
+        FROM users 
+        WHERE telegram_id LIKE ? OR username LIKE ? OR first_name LIKE ?
+        ORDER BY telegram_id
+        LIMIT 20
+    """, (f"%{query}%", f"%{query}%", f"%{query}%"))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+    
