@@ -21,6 +21,7 @@ ALLOWED_STATUSES = {
     'content': ['pending_encryption', 'pending_author_approval', 'approved', 'rejected', 'blocked']
 }
 
+
 def get_payment_table(payment_type):
     """
     🛡️ ደህንነቱ የተጠበቀ የሠንጠረዥ ስም መመለስ
@@ -29,6 +30,7 @@ def get_payment_table(payment_type):
     if not table:
         raise ValueError(f"Invalid payment type: {payment_type}. Allowed: {list(ALLOWED_TABLES.keys())}")
     return table
+
 
 def validate_status(status, status_type='order'):
     """
@@ -40,6 +42,7 @@ def validate_status(status, status_type='order'):
     if status not in allowed:
         raise ValueError(f"Invalid status: {status}. Allowed: {allowed}")
     return True
+
 
 # =====================================================================
 # 🛡️ የግቤት ማጽዳት (Input Sanitization)
@@ -54,11 +57,13 @@ def sanitize_filename(filename):
         return f"file_{uuid.uuid4().hex[:8]}.pdf"
     return sanitized
 
+
 def get_safe_file_path(doc_filename):
     """🛡️ ደህንነቱ የተጠበቀ የፋይል መንገድ ይመልሳል"""
     safe_name = sanitize_filename(doc_filename)
     unique_id = uuid.uuid4().hex[:8]
     return f"files/{unique_id}_{safe_name}"
+
 
 def sanitize_receipt_link(link):
     """🛡️ የሪሲት ሊንክ ማጽዳት"""
@@ -68,6 +73,7 @@ def sanitize_receipt_link(link):
         link = 'https://' + link
     link = re.sub(r'[^a-zA-Z0-9/:._-]', '', link)
     return link
+
 
 # =====================================================================
 # 🛡️ የውሂብ ማረጋገጫ (Data Validation)
@@ -81,6 +87,7 @@ def validate_content_id(content_id):
         raise ValueError(f"Content ID must be positive, got {content_id}")
     return True
 
+
 def validate_user_id(user_id):
     """🛡️ የተጠቃሚ መታወቂያ ማረጋገጫ"""
     if not isinstance(user_id, int):
@@ -88,6 +95,7 @@ def validate_user_id(user_id):
     if user_id <= 0:
         raise ValueError(f"User ID must be positive, got {user_id}")
     return True
+
 
 def validate_amount(amount):
     """🛡️ የገንዘብ መጠን ማረጋገጫ"""
@@ -99,6 +107,7 @@ def validate_amount(amount):
         raise ValueError(f"Amount too large: {amount}")
     return True
 
+
 def validate_payment_id(payment_id):
     """🛡️ የክፍያ መታወቂያ ማረጋገጫ"""
     if not isinstance(payment_id, int):
@@ -106,6 +115,7 @@ def validate_payment_id(payment_id):
     if payment_id <= 0:
         raise ValueError(f"Payment ID must be positive, got {payment_id}")
     return True
+
 
 def validate_order_id(order_id):
     """🛡️ የትዕዛዝ መታወቂያ ማረጋገጫ"""
