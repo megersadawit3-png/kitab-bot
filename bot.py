@@ -1,6 +1,7 @@
 import logging
 import os
 import aiofiles
+import re
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -96,7 +97,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =====================================================================
-# 👑 የአድሚን መቆጣጠሪያ ክፍል (ተሻሽሏል)
+# 👑 የአድሚን መቆጣጠሪያ ክፍል
 # =====================================================================
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -105,24 +106,18 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ ይህንን ትዕዛዝ ለመጠቀም ፈቃድ የለዎትም!")
         return
 
-    # 🆕 የተሻሻለ ጥሪ - መዝገብ ይመለሳል
     counts = db.get_pending_counts()
 
     msg = (
         "👑 **የኪታብ ማርኬትፕሌስ አድሚን ፓነል**\n\n"
-        f"📝 ለመመስጠር የሚጠበቁ ይዘቶች፡ **{counts['pending_encryption']}**\n"
-        f"📝 ለማጽደቅ የሚጠበቁ ይዘቶች፡ **{counts['pending_author_approval']}**\n"
-        f"✍️ በግምገማ ላይ ያሉ ደራሲያን፡ **{counts['pending_authors']}**\n"
-        f"💳 ማረጋገጫ የሚጠብቁ የደራሲ ክፍያዎች፡ **{counts['pending_author_payments']}**\n"
-        f"💳 ማረጋገጫ የሚጠብቁ የአድሚን ክፍያዎች፡ **{counts['pending_admin_payments']}**\n"
-        f"🚫 በአገልግሎት ክፍያ የታገዱ ይዘቶች፡ **{counts['blocked_contents']}**\n\n"
-        "ከታች ያሉትን አዝራሮች በመጫን ተጨማሪ ስራዎችን ያከናውኑ፦"
+        f"🔐 ለመመስጠር የሚጠበቁ: **{counts['pending_encryption']}**\n"
+        f"📝 ለማጽደቅ የሚጠበቁ: **{counts['pending_author_approval']}**\n"
+        f"✍️ በግምገማ ላይ ያሉ ደራሲያን: **{counts['pending_authors']}**\n"
+        f"💳 ማረጋገጫ የሚጠብቁ ክፍያዎች: **{counts['pending_author_payments'] + counts['pending_admin_payments']}**\n"
+        f"🚫 የታገዱ ይዘቶች: **{counts['blocked_contents']}**\n\n"
+        "📌 ሙሉ የአስተዳደር ፓነል ለማግኘት አድሚን ቦቱን ይጠቀሙ።"
     )
-    keyboard = [
-        [InlineKeyboardButton("📚 ሁሉንም ይዘቶች ይመልከቱ", callback_data="admin_view_all")],
-        [InlineKeyboardButton("📊 አጠቃላይ ሽያጭ ሪፖርት", callback_data="admin_sales_report")]
-    ]
-    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await update.message.reply_text(msg, parse_mode="Markdown")
 
 
 async def notify_admin_new_author(bot, user_id, username, first_name, bio, phone):
@@ -144,17 +139,15 @@ async def notify_admin_new_author(bot, user_id, username, first_name, bio, phone
 
 async def notify_admin_new_book(bot, book_id, title, price, file_path):
     msg = (
-        "🔔 **አዲስ ይዘት ለDRM መመስጠር ቀርቧል!**\n\n"
+        "🔔 **አዲስ ይዘት ለመመስጠር ቀርቧል!**\n\n"
         f"📚 **ርዕስ:** {title}\n"
-        f"💰 **ዋጋ:** {price} ETB\n\n"
-        "ℹ️ *እባክዎ መጀመሪያ ከላይ ያለውን ፋይል አውርደው ከተመለከቱ በኋላ ከታች ካሉት አማራጮች አንዱን ይምረጡ፦*"
+        f"💰 **ዋጋ:** {price} ETB\n"
+        f"🆔 **ID:** `{book_id}`\n\n"
+        "📌 እባክዎ ፋይሉን በDRM በመመስጠር ለደራሲ ማጽደቅ ያዘጋጁ።"
     )
-    keyboard = [
-        [
-            InlineKeyboardButton("✅ ፍቀድ (Approve)", callback_data=f"approve_book_{book_id}"),
-            InlineKeyboardButton("❌ ከልክል (Reject)", callback_data=f"reject_book_{book_id}")
-        ]
-    ]
+    keyboard = [[
+        InlineKeyboardButton("🔐 ፋይሉን አመስጥር", callback_data=f"admin_encrypt_{book_id}")
+    ]]
     try:
         if os.path.exists(file_path):
             await bot.send_document(
@@ -172,6 +165,18 @@ async def notify_admin_new_book(bot, book_id, title, price, file_path):
             )
     except Exception as e:
         logging.error(f"Failed to send file review to admin: {e}")
+
+
+async def notify_admin_encryption_complete(bot, book_id, title, author_id):
+    """ፋይሉ ተመስጥሯል እና ለደራሲ ማጽደቅ ዝግጁ መሆኑን ለአድሚን ያሳውቃል"""
+    msg = (
+        f"✅ **ይዘት ተመስጥሯል!**\n\n"
+        f"📚 **ርዕስ:** {title}\n"
+        f"🆔 **ID:** `{book_id}`\n"
+        f"👤 **ደራሲ ID:** `{author_id}`\n\n"
+        "📌 አሁን ለደራሲ ማጽደቅ ይጠበቃል።"
+    )
+    await bot.send_message(chat_id=ADMIN_ID, text=msg, parse_mode="Markdown")
 
 
 # =====================================================================
@@ -357,9 +362,16 @@ async def save_file_and_finish(update: Update, context: ContextTypes.DEFAULT_TYP
         return AWAITING_FILE
 
     doc = update.message.document
+    
+    # ፋይሉ ፒዲኤፍ መሆኑን ማረጋገጥ
+    if not doc.file_name.endswith('.pdf'):
+        msg = "❌ እባክዎ የፒዲኤፍ (PDF) ፋይል ብቻ ይጫኑ!" if lang == "am" else ("❌ Maaloo faayilii PDF qofa ergaa!" if lang == "or" else "❌ Please upload only PDF files!")
+        await update.message.reply_text(msg)
+        return AWAITING_FILE
+    
     os.makedirs("files", exist_ok=True)
     
-    # 🆕 የፋይል ስም ማጽዳት
+    # ደህንነቱ የተጠበቀ የፋይል መንገድ
     safe_filename = security.sanitize_filename(doc.file_name)
     file_path = f"files/{safe_filename}"
     
@@ -371,30 +383,31 @@ async def save_file_and_finish(update: Update, context: ContextTypes.DEFAULT_TYP
     desc = context.user_data.get('upload_desc')
     price = context.user_data.get('upload_price')
     
-    # 🆕 አዲስ ጥሪ - status 'pending_encryption' ይሆናል
+    # 🆕 አዲስ ይዘት በ'pending_encryption' ሁኔታ
     inserted_id = db.add_content(user_id, title, category, desc, price, file_path)
     
+    # ለአድሚን ማሳወቂያ (ፋይሉ ለመመስጠር ዝግጁ መሆኑን)
     await notify_admin_new_book(context.bot, inserted_id, title, price, file_path)
     
     kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
     if lang == "am": 
         await update.message.reply_text(
-            "🎉 ይዘትዎ በተሳካ ሁኔታ ተጭኗል!\n\n"
-            "⏳ አሁን ፋይሉ ለደህንነት ጥበቃ (DRM Encryption) ይዘጋጃል።\n"
+            "✅ ይዘትዎ በተሳካ ሁኔታ ተጭኗል!\n\n"
+            "⏳ አሁን ፋይሉ ለደህንነት ጥበቃ (DRM Encryption) በአድሚን ይዘጋጃል።\n"
             "📌 ሂደቱ ከተጠናቀቀ በኋላ ለማጽደቅ ይላክልዎታል።",
             reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
         )
     elif lang == "or":
         await update.message.reply_text(
-            "🎉 Kitaabni keessan milkiyn galeera!\n\n"
-            "⏳ Amma faayilii kun eegumsa (DRM Encryption) jedhamuuf qophaa'aa jira.\n"
+            "✅ Kitaabni keessan milkiyn galeera!\n\n"
+            "⏳ Amma faayilii kun eegumsa (DRM Encryption) jedhamuuf adminiin qophaa'aa jira.\n"
             "📌 Hojii xumuramee booda mirkaneessuuf isinii ergama.",
             reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
         )
     else:
         await update.message.reply_text(
-            "🎉 Content uploaded successfully!\n\n"
-            "⏳ The file is now being prepared for DRM encryption.\n"
+            "✅ Content uploaded successfully!\n\n"
+            "⏳ The file is now being prepared for DRM encryption by admin.\n"
             "📌 You will receive it for approval once the process is complete.",
             reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
         )
@@ -427,7 +440,14 @@ async def execute_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = db.get_user_lang(user_id)
     
-    results = db.execute_search_query(query_text)
+    # የፍለጋ ጽሑፍ ማጽዳት
+    safe_query = re.sub(r'[^a-zA-Z0-9አ-፥\s]', '', query_text)
+    if not safe_query:
+        msg = "❌ እባክዎ ትክክለኛ ቃል ያስገቡ" if lang == "am" else ("❌ Maaloo jecha sirrii galchaa" if lang == "or" else "❌ Please enter a valid search term")
+        await update.message.reply_text(msg)
+        return ConversationHandler.END
+    
+    results = db.execute_search_query(safe_query, limit=20)
     kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
     
     if not results:
@@ -472,77 +492,167 @@ async def view_library(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =====================================================================
-# 💳 የተሻሻለ የክፍያ ማስተናገጃ (ከአዲሱ ሰንጠረዥ ጋር)
+# 💳 የክፍያ ስርዓት - ቀጥታ ወደ ደራሲ ክፍያ
 # =====================================================================
 
-async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_payment_instructions(update: Update, context: ContextTypes.DEFAULT_TYPE, book):
     """
-    ተጠቃሚ የቴሌብር ደረሰኝ ቁጥር ሲያስገባ ይሰራል
+    ደረጃ 1: ገዢው ወደ ደራሲው እንዲከፍል መመሪያ
     """
-    tx_ref = update.message.text.strip()
+    user_id = update.effective_user.id
+    lang = db.get_user_lang(user_id)
+    
+    # ደራሲውን ማግኘት
+    author = db.get_author_by_user_id(book['author_id'])
+    if not author:
+        await update.message.reply_text("❌ የደራሲ መረጃ አልተገኘም")
+        return
+    
+    # የደራሲ ስልክ ቁጥር ማግኘት
+    user = db.get_user_by_id(book['author_id'])
+    author_phone = user.get('phone', TELEBIRR_PHONE) if user else TELEBIRR_PHONE
+    
+    # ምድቡን ማረጋገጥ - መጽሐፍ ከሆነ ወደ ደራሲ፣ ሌላ ከሆነ ወደ አድሚን
+    is_book = db.is_book_content(book['id'])
+    payment_type = 'author' if is_book else 'admin'
+    
+    if payment_type == 'author':
+        payee = f"👤 ደራሲ: {user.get('first_name', '') if user else ''}"
+        phone_display = author_phone
+    else:
+        payee = "👑 አድሚን"
+        phone_display = TELEBIRR_PHONE
+    
+    msg = (
+        f"💳 **የክፍያ መመሪያ**\n\n"
+        f"📚 መጽሐፍ: **{book['title']}**\n"
+        f"💰 ዋጋ: **{book['price']} ETB**\n"
+        f"{payee}\n\n"
+        f"1️⃣ ክፍያዎን ወደሚከተለው የቴሌብር ቁጥር ያስገቡ\n"
+        f"📱 **{phone_display}**\n"
+        f"👤 **{TELEBIRR_ACCOUNT_NAME}**\n\n"
+        f"2️⃣ ከተከፈለ በኋላ ከቴሌብር የደረሰውን የሪሲት ሊንክ ያስገቡ\n"
+        f"3️⃣ አድሚኑ ካረጋገጠ በኋላ መጽሐፉ ይለቀቃል\n\n"
+        f"✍️ **የሪሲት ሊንኩን እዚህ ይላኩ**"
+    )
+    
+    # ይዘቱን ለማስታወስ
+    context.user_data['payment_book_id'] = book['id']
+    context.user_data['payment_author_id'] = book['author_id']
+    context.user_data['payment_type'] = payment_type
+    context.user_data['payment_amount'] = book['price']
+    
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
+async def process_receipt_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    ደረጃ 2: ገዢው የቴሌብር ሪሲት ሊንክ ያስገባል
+    """
+    receipt_link = update.message.text.strip()
     user = update.effective_user
     lang = db.get_user_lang(user.id)
-    content_id = context.user_data.get('buying_book_id')
+    
+    book_id = context.user_data.get('payment_book_id')
+    author_id = context.user_data.get('payment_author_id')
+    payment_type = context.user_data.get('payment_type', 'author')
+    amount = context.user_data.get('payment_amount', 0)
     
     kb = am_main_keyboard if lang == "am" else (or_main_keyboard if lang == "or" else en_main_keyboard)
     
-    if not content_id:
-        await update.message.reply_text("❌ ስህተት ተፈጥሯል። እባክዎ እንደገና ይሞክሩ", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
-        return ConversationHandler.END
-        
-    book = db.get_content_by_id(content_id)
-    if not book:
-        await update.message.reply_text("❌ ይዘቱ አልተገኘም", reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
-        return ConversationHandler.END
-
-    # 🆕 ትዕዛዝ መፍጠር - የገንዘብ አይነት መወሰን
-    # ይዘቱ መጽሐፍ ከሆነ 'author', ሌላ ከሆነ 'admin'
-    payment_type = 'author' if db.is_book_content(content_id) else 'admin'
+    if not book_id:
+        await update.message.reply_text("❌ ስህተት ተፈጥሯል። እባክዎ እንደገና ይሞክሩ")
+        return
     
-    order_id = db.add_order(user.id, content_id, book['price'], tx_ref, payment_type=payment_type, status="pending")
+    # ሊንክ መሆኑን ማረጋገጥ
+    if not receipt_link.startswith(('http://', 'https://')):
+        await update.message.reply_text("❌ እባክዎ ትክክለኛ ሊንክ ያስገቡ (https://...)")
+        return
+    
+    # የሪሲት መለያ ቁጥር ከሊንክ ማውጣት (ለማስታወሻ)
+    import re
+    ref_match = re.search(r'[A-Z0-9\-]{8,}', receipt_link)
+    receipt_ref = ref_match.group(0) if ref_match else f"REF-{book_id}-{user.id}"
+    
+    # ትዕዛዝ መፍጠር
+    order_id = db.add_order(
+        user_id=user.id,
+        content_id=book_id,
+        amount=amount,
+        payment_ref=receipt_ref,
+        payment_type=payment_type,
+        status="pending"
+    )
     
     if not order_id:
-        dup_msg = "❌ ይህ የግብይት ቁጥር (Ref) ቀድሞ ጥቅም ላይ ውሏል። እባክዎ ትክክለኛውን ቁጥር በድጋሚ ያስገቡ ወይም ድጋፍ ያግኙ።"
-        if lang == "or": dup_msg = "❌ Lakkoofsi herrega kun (Ref) duraan itti fayyadameera. Maaloo lakkoofsa sirrii deebi'aa galchaa."
-        elif lang == "en": dup_msg = "❌ This transaction reference has already been used. Please enter the correct reference or contact support."
-        await update.message.reply_text(dup_msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
-        return ConversationHandler.END
-
-    # 🆕 የክፍያ መዝገብ መፍጠር
+        await update.message.reply_text("❌ ትዕዛዝ መፍጠር አልተቻለም። እባክዎ እንደገና ይሞክሩ")
+        return
+    
+    # ክፍያ መፍጠር
     if payment_type == 'author':
-        payment_id = db.create_author_payment(order_id, book['author_id'], user.id, content_id, book['price'])
+        payment_id = db.create_author_payment(
+            order_id=order_id,
+            author_id=author_id,
+            user_id=user.id,
+            content_id=book_id,
+            amount=amount
+        )
     else:
-        payment_id = db.create_admin_payment(order_id, user.id, content_id, book['price'])
+        payment_id = db.create_admin_payment(
+            order_id=order_id,
+            user_id=user.id,
+            content_id=book_id,
+            amount=amount
+        )
     
-    context.user_data['payment_id'] = payment_id
-    context.user_data['payment_type'] = payment_type
-
-    msg = "🙏 የግብይት ቁጥርዎ ተመዝግቧል። በአድሚን ተረጋግጦ ይዘቱ ወዲያውኑ ይላክልዎታል።"
-    if lang == "or": msg = "🙏 Lakkoofsi herrega keessanii galmeeffameera. Erga mirkanaa'ee booda isiniif ergama."
-    elif lang == "en": msg = "🙏 Your transaction reference has been recorded. Content will be sent after verification."
+    if not payment_id:
+        await update.message.reply_text("❌ ክፍያ መፍጠር አልተቻለም። እባክዎ እንደገና ይሞክሩ")
+        return
     
-    await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+    # የሪሲት ሊንክ ማስቀመጥ
+    success = db.submit_receipt_link(payment_id, receipt_link, receipt_ref, payment_type)
     
-    # 🆕 ለአድሚን ማሳወቂያ - አዲስ ቅርጸት
-    admin_msg = (
-        f"💳 **አዲስ ክፍያ ለማረጋገጥ ቀርቧል**\n\n"
-        f"👤 ተጠቃሚ: @{user.username} ({user.id})\n"
-        f"📚 ይዘት: {book['title']}\n"
-        f"💰 ዋጋ: {book['price']} ETB\n"
-        f"📝 የቴሌብር Ref: `{tx_ref}`\n"
-        f"📌 ክፍያ ዓይነት: {'📚 ደራሲ' if payment_type == 'author' else '👑 አድሚን'}\n"
-        f"🆔 የክፍያ ID: `{payment_id}`"
+    if not success:
+        await update.message.reply_text("❌ የሪሲት ሊንክ ማስቀመጥ አልተቻለም። እባክዎ እንደገና ይሞክሩ")
+        return
+    
+    # ለገዢው ማሳወቂያ
+    await update.message.reply_text(
+        "✅ የሪሲት ሊንክዎ ተመዝግቧል!\n"
+        "⏳ አድሚኑ ካረጋገጠ በኋላ መጽሐፉ ይለቀቃል።",
+        reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
     )
-    admin_buttons = [[
-        InlineKeyboardButton("✅ ክፍያውን አጽድቅ", callback_data=f"admin_app_pay_{payment_id}"),
-        InlineKeyboardButton("❌ ውድቅ አድርግ", callback_data=f"admin_rej_pay_{payment_id}")
+    
+    # ለአድሚን ማሳወቂያ
+    book = db.get_content_by_id(book_id)
+    await notify_admin_pending_payment(context.bot, payment_id, payment_type, user, book, receipt_link, receipt_ref)
+
+
+async def notify_admin_pending_payment(bot, payment_id, payment_type, user, book, receipt_link, receipt_ref):
+    """
+    አዲስ ክፍያ ለግምገማ መቅረቡን ለአድሚን ያሳውቃል
+    """
+    payment_type_label = "📚 ደራሲ" if payment_type == 'author' else "👑 አድሚን"
+    msg = (
+        f"💳 **አዲስ የክፍያ ማረጋገጫ ቀርቧል!**\n\n"
+        f"📌 **ዓይነት:** {payment_type_label}\n"
+        f"👤 **ተጠቃሚ:** {user.first_name} (@{user.username}) (ID: {user.id})\n"
+        f"📚 **ይዘት:** {book['title']}\n"
+        f"💰 **ዋጋ:** {book['price']} ETB\n"
+        f"🆔 **ክፍያ ID:** `{payment_id}`\n"
+        f"🔗 **ሪሲት ሊንክ:** [ክፈት]({receipt_link})\n"
+        f"📝 **Ref:** `{receipt_ref}`\n\n"
+        "📌 እባክዎ ሊንኩን ከፍተው ክፍያውን ያረጋግጡ።"
+    )
+    keyboard = [[
+        InlineKeyboardButton("✅ አጽድቅ", callback_data=f"admin_app_pay_{payment_id}"),
+        InlineKeyboardButton("❌ ውድቅ", callback_data=f"admin_rej_pay_{payment_id}")
     ]]
-    await context.bot.send_message(chat_id=ADMIN_ID, text=admin_msg, reply_markup=InlineKeyboardMarkup(admin_buttons), parse_mode="Markdown")
-    return ConversationHandler.END
+    await bot.send_message(chat_id=ADMIN_ID, text=msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 
 # =====================================================================
-# 📊 የደራሲ ሽያጭ ሪፖርት
+# 📊 የደራሲ ሽያጭ ሪፖርት (የተሻሻለ)
 # =====================================================================
 async def author_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -555,24 +665,133 @@ async def author_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(msg)
         return
     
-    sales_data = db.get_author_sales(user_id)
-    if not sales_data['contents']:
-        msg = "📭 እስካሁን ምንም ይዘት አላስገቡም።"
-        if lang == "or": msg = "📭 Hanga ammaatti qabiyyee hin galchitan."
-        elif lang == "en": msg = "📭 You haven't uploaded any content yet."
-        await update.message.reply_text(msg)
+    # የደራሲ ዳሽቦርድ አዝራሮች እንልካለን
+    keyboard = [
+        [InlineKeyboardButton("📊 አጠቃላይ ሪፖርት", callback_data=f"author_report_all_{user_id}")],
+        [InlineKeyboardButton("📊 የዛሬ ሪፖርት", callback_data=f"author_report_day_{user_id}")],
+        [InlineKeyboardButton("📊 የሳምንት ሪፖርት", callback_data=f"author_report_week_{user_id}")],
+        [InlineKeyboardButton("📊 የወር ሪፖርት", callback_data=f"author_report_month_{user_id}")],
+        [InlineKeyboardButton("👤 ሁሉንም ገዢዎች ይመልከቱ", callback_data=f"author_buyers_{user_id}")],
+    ]
+    
+    await update.message.reply_text(
+        "📊 **የደራሲ ሪፖርት ፓነል**\n\n"
+        "ከታች ካሉት አማራጮች ይምረጡ፦",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+
+async def author_report_by_period(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """በጊዜ የሽያጭ ሪፖርት"""
+    query = update.callback_query
+    data = query.data
+    parts = data.split("_")
+    period = parts[2]
+    user_id = int(parts[3])
+    
+    await query.answer()
+    
+    # የደራሲውን መለያ ማግኘት
+    author = db.get_author_by_user_id(user_id)
+    if not author:
+        await query.edit_message_text("❌ ደራሲ አልተገኘም")
         return
     
-    lines = ["📊 **የሽያጭ ሪፖርት**", ""]
-    for item in sales_data['contents']:
-        lines.append(f"📌 **{item['title']}**")
-        lines.append(f"   💰 ዋጋ: {item['price']} ETB")
-        lines.append(f"   🛒 የተሸጠ ብዛት: {item['sales_count']}")
-        lines.append(f"   💵 ገቢ: {item['income']} ETB")
-        lines.append("")
-    lines.append(f"💰 **ጠቅላላ ገቢ:** {sales_data['total_income']} ETB")
+    # ሪፖርት ማግኘት
+    report = db.get_author_sales_report(author['user_id'], period)
+    stats = report['stats']
+    buyers = report['buyers']
     
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    period_labels = {
+        'all': 'አጠቃላይ',
+        'day': 'ዛሬ',
+        'week': 'በሳምንቱ',
+        'month': 'በወሩ'
+    }
+    
+    msg = (
+        f"📊 **የሽያጭ ሪፖርት - {period_labels.get(period, '')}**\n"
+        f"═══════════════════════\n\n"
+        f"💰 ጠቅላላ ገቢ: **{stats['total_revenue']:.2f} ETB**\n"
+        f"🛒 ጠቅላላ ግብይቶች: **{stats['total_transactions']}**\n"
+        f"👤 ልዩ ገዢዎች: **{stats['unique_buyers']}**\n"
+    )
+    
+    if buyers:
+        msg += "\n🆕 **የቅርብ ጊዜ ገዢዎች (5)**\n"
+        for buyer in buyers[:5]:
+            msg += (
+                f"• {buyer['first_name']} (@{buyer['username']})\n"
+                f"  📚 {buyer['book_title']}\n"
+                f"  💰 {buyer['amount']} ETB\n"
+                f"  📅 {buyer['purchase_date'][:10]}\n\n"
+            )
+    
+    keyboard = [[InlineKeyboardButton("🔙 ወደ ሪፖርት ፓነል", callback_data=f"author_menu_{user_id}")]]
+    await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+
+async def author_buyers_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የደራሲውን ሁሉንም ገዢዎች ዝርዝር"""
+    query = update.callback_query
+    data = query.data
+    user_id = int(data.split("_")[2])
+    
+    await query.answer()
+    
+    author = db.get_author_by_user_id(user_id)
+    if not author:
+        await query.edit_message_text("❌ ደራሲ አልተገኘም")
+        return
+    
+    report = db.get_author_sales_report(author['user_id'], 'all')
+    buyers = report['buyers']
+    
+    if not buyers:
+        await query.edit_message_text("📭 እስካሁን ምንም ገዢ የለም።")
+        return
+    
+    msg = "👤 **ሁሉም ገዢዎች**\n═══════════════════════\n\n"
+    
+    for buyer in buyers[:20]:
+        msg += (
+            f"• **{buyer['first_name']}** (@{buyer['username']})\n"
+            f"  📚 {buyer['book_title']}\n"
+            f"  💰 {buyer['amount']} ETB\n"
+            f"  📅 {buyer['purchase_date'][:10]}\n"
+            f"  📝 ID: `{buyer['telegram_id']}`\n\n"
+        )
+    
+    if len(buyers) > 20:
+        msg += f"\n... እና {len(buyers) - 20} ተጨማሪ ገዢዎች"
+    
+    keyboard = [[InlineKeyboardButton("🔙 ወደ ሪፖርት ፓነል", callback_data=f"author_menu_{user_id}")]]
+    await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+
+async def author_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ወደ ደራሲ ሪፖርት ፓነል መመለስ"""
+    query = update.callback_query
+    data = query.data
+    user_id = int(data.split("_")[2])
+    
+    await query.answer()
+    
+    keyboard = [
+        [InlineKeyboardButton("📊 አጠቃላይ ሪፖርት", callback_data=f"author_report_all_{user_id}")],
+        [InlineKeyboardButton("📊 የዛሬ ሪፖርት", callback_data=f"author_report_day_{user_id}")],
+        [InlineKeyboardButton("📊 የሳምንት ሪፖርት", callback_data=f"author_report_week_{user_id}")],
+        [InlineKeyboardButton("📊 የወር ሪፖርት", callback_data=f"author_report_month_{user_id}")],
+        [InlineKeyboardButton("👤 ሁሉንም ገዢዎች ይመልከቱ", callback_data=f"author_buyers_{user_id}")],
+    ]
+    
+    await query.edit_message_text(
+        "📊 **የደራሲ ሪፖርት ፓነል**\n\n"
+        "ከታች ካሉት አማራጮች ይምረጡ፦",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 
 # =====================================================================
@@ -641,7 +860,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db_category = "Technology"
 
     if db_category:
-        books = db.get_contents_by_category(db_category)
+        result = db.get_contents_by_category(db_category, limit=50, offset=0)
+        books = result if isinstance(result, list) else []
         
         if not books:
             if lang == "am": msg = f"😔 ይቅርታ፣ በዚህ ሰዓት በ'{text}' ዘርፍ የተጫነ ይዘት የለም።"
@@ -664,18 +884,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     book = db.get_content_by_title(text)
 
     if book:
-        if lang == "am":
-            checkout_msg = f"🛒 **የመግዣ ማጠቃለያ**\n\n📚 **ርዕስ:** {book['title']}\n💰 **ዋጋ:** {book['price']} ETB\n📝 **መግለጫ:** {book['description']}\n\nይህንን ይዘት ገዝተው በቅጽበት ለማውረድ ከታች ያለውን የክፍያ ቁልፍ ይጫኑ፦"
-            btn_text = "💳 በ Chapa / Telebirr ክፈል"
-        elif lang == "or":
-            checkout_msg = f"🛒 **Maamilummaa Bitataa**\n\n📚 **Mata duree:** {book['title']}\n💰 **Gatii:** {book['price']} ETB\n📝 **Ibsa:** {book['description']}\n\nBitachuuf qabdoo gadii cuqaasaa:"
-            btn_text = "💳 Kaffaltii Raawwadhu"
-        else:
-            checkout_msg = f"🛒 **Purchase Order**\n\n📚 **Title:** {book['title']}\n💰 **Price:** {book['price']} ETB\n📝 **Description:** {book['description']}\n\nClick the button below to complete your purchase:"
-            btn_text = "💳 Pay Now"
-
-        keyboard = [[InlineKeyboardButton(btn_text, callback_data=f"buy_{book['id']}")]]
-        await update.message.reply_text(checkout_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await show_payment_instructions(update, context, book)
         return
 
 
@@ -690,10 +899,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # የአድሚን-ብቻ ድርጊቶች ማረጋገጫ
     ADMIN_ONLY_PREFIXES = (
-        "admin_app_pay_", "admin_rej_pay_",
+        "pay_app_", "pay_rej_",
         "approve_book_", "reject_book_",
         "approve_auth_", "reject_auth_",
-        "admin_download_", "admin_view_all", "admin_sales_report"
+        "admin_download_", "admin_view_all", "admin_sales_report",
+        "admin_encrypt_"
     )
     if data.startswith(ADMIN_ONLY_PREFIXES) and user_id != ADMIN_ID:
         await query.answer("⛔ ይህንን ድርጊት ለመፈጸም ፈቃድ የለዎትም።", show_alert=True)
@@ -701,84 +911,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.answer()
     
-    # ================================================================
-    # 👑 አድሚን ክፍያ ማጽደቅ (የተሻሻለ)
-    # ================================================================
-    if data.startswith("admin_app_pay_"):
-        payment_id = int(data.split("_")[3])
-        # የክፍያ ዓይነት መለየት
-        payment = db.get_author_payment_by_id(payment_id)
-        if payment:
-            success = db.admin_verify_author_payment(payment_id, "በአድሚን ጸድቋል")
-            payment_type = 'author'
-        else:
-            payment = db.get_admin_payment_by_id(payment_id)
-            if payment:
-                success = db.admin_verify_admin_payment(payment_id, "በአድሚን ጸድቋል")
-                payment_type = 'admin'
-            else:
-                await query.edit_message_text("❌ ክፍያው አልተገኘም")
-                return
-        
-        if success:
-            await query.edit_message_text(f"✅ ክፍያ #{payment_id} ተረጋግጧል!")
-            
-            # መጽሐፉን ለተጠቃሚ መላክ
-            book = db.get_content_by_id(payment['content_id'])
-            if book and os.path.exists(book['file_path']):
-                await context.bot.send_message(
-                    chat_id=payment['user_id'],
-                    text="✅ ክፍያዎ በአድሚን ተረጋግጧል! ያዘዙት ይዘት ከታች ተልኮልዎታል።"
-                )
-                async with aiofiles.open(book['file_path'], 'rb') as f:
-                    file_data = await f.read()
-                await context.bot.send_document(
-                    chat_id=payment['user_id'],
-                    document=file_data,
-                    filename=os.path.basename(book['file_path']),
-                    protect_content=True
-                )
-        else:
-            await query.edit_message_text(f"❌ ክፍያ #{payment_id} ማጽደቅ አልተቻለም")
+    # --- የደራሲ ሪፖርት ካልባኮች ---
+    if data.startswith("author_report_"):
+        await author_report_by_period(update, context)
         return
-
-    # ================================================================
-    # 👑 አድሚን ክፍያ ውድቅ ማድረግ (የተሻሻለ)
-    # ================================================================
-    elif data.startswith("admin_rej_pay_"):
-        payment_id = int(data.split("_")[3])
-        # የክፍያ ዓይነት መለየት
-        payment = db.get_author_payment_by_id(payment_id)
-        if payment:
-            success = db.admin_reject_payment(payment_id, 'author', "በአድሚን ውድቅ ተደርጓል")
-        else:
-            payment = db.get_admin_payment_by_id(payment_id)
-            if payment:
-                success = db.admin_reject_payment(payment_id, 'admin', "በአድሚን ውድቅ ተደርጓል")
-            else:
-                await query.edit_message_text("❌ ክፍያው አልተገኘም")
-                return
-        
-        if success:
-            await query.edit_message_text(f"❌ ክፍያ #{payment_id} ውድቅ ተደርጓል።")
-            if payment:
-                await context.bot.send_message(
-                    chat_id=payment['user_id'],
-                    text="❌ ያስገቡት የክፍያ ማረጋገጫ ቁጥር ትክክል ባለመሆኑ በአድሚን ውድቅ ተደርጓል።"
-                )
-        else:
-            await query.edit_message_text(f"❌ ክፍያ #{payment_id} ውድቅ ማድረግ አልተቻለም")
+    elif data.startswith("author_buyers_"):
+        await author_buyers_list(update, context)
         return
-
-    # ================================================================
-    # 👑 አድሚን ሁሉንም ይዘቶች ማየት (የተሻሻለ - ገጽ መለያየት)
-    # ================================================================
+    elif data.startswith("author_menu_"):
+        await author_menu(update, context)
+        return
+    
+    # --- የአድሚን ሁሉንም ይዘቶች ማየት ---
     if data == "admin_view_all":
-        page = context.user_data.get('admin_page', 0)
-        limit = 5
-        result = db.get_all_contents(limit=limit, offset=page * limit)
-        contents = result['items']
-        total = result['total']
+        result = db.get_all_contents(limit=20, offset=0)
+        contents = result['items'] if isinstance(result, dict) else []
         
         if not contents:
             await context.bot.send_message(chat_id=user_id, text="📭 ምንም ይዘት የለም።")
@@ -796,42 +943,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             kb = [[InlineKeyboardButton("📥 አውርድ", callback_data=f"admin_download_{content['id']}")]]
             await context.bot.send_message(chat_id=user_id, text=caption, reply_markup=InlineKeyboardMarkup(kb), parse_mode="Markdown")
-        
-        # ገጽ መለያየት አዝራሮች
-        nav_buttons = []
-        if page > 0:
-            nav_buttons.append(InlineKeyboardButton("⬅️ ቀዳሚ", callback_data="admin_page_prev"))
-        if (page + 1) * limit < total:
-            nav_buttons.append(InlineKeyboardButton("➡️ ቀጣይ", callback_data="admin_page_next"))
-        if nav_buttons:
-            nav_buttons.append(InlineKeyboardButton("🔄 አዘምን", callback_data="admin_view_all"))
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"📄 ገጽ {page + 1}/{((total - 1) // limit) + 1} (📚 {total} ይዘቶች)",
-                reply_markup=InlineKeyboardMarkup([nav_buttons])
-            )
         return
 
-    # ================================================================
-    # 📄 ገጽ መለያየት
-    # ================================================================
-    if data == "admin_page_next":
-        context.user_data['admin_page'] = context.user_data.get('admin_page', 0) + 1
-        # እንደገና መላክ
-        await handle_callback(update, context)
-        return
-        
-    if data == "admin_page_prev":
-        context.user_data['admin_page'] = max(0, context.user_data.get('admin_page', 0) - 1)
-        await handle_callback(update, context)
-        return
-
-    # ================================================================
-    # 📊 አድሚን አጠቃላይ ሽያጭ ሪፖርት
-    # ================================================================
+    # --- የአድሚን አጠቃላይ ሽያጭ ሪፖርት ---
     if data == "admin_sales_report":
         result = db.get_all_contents(limit=100, offset=0)
-        contents = result['items']
+        contents = result['items'] if isinstance(result, dict) else []
         total_income = 0.0
         lines = ["📊 **አጠቃላይ የሽያጭ ሪፖርት**", ""]
         for content in contents:
@@ -845,17 +962,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=user_id, text="\n".join(lines), parse_mode="Markdown")
         return
 
-    # ================================================================
-    # 📥 አድሚን ፋይል ማውረድ
-    # ================================================================
+    # --- አድሚን ፋይል ማውረድ ---
     if data.startswith("admin_download_"):
         content_id = data.split("_")[2]
         try:
-            security.validate_content_id(int(content_id))
+            security._validate_content_id(int(content_id))
         except:
             await query.answer("❌ የተሳሳተ መታወቂያ", show_alert=True)
             return
-        book = db.get_content_by_id(int(content_id))
+        
+        book = db.get_content_by_id(content_id)
         if book and os.path.exists(book['file_path']):
             async with aiofiles.open(book['file_path'], 'rb') as f:
                 file_data = await f.read()
@@ -870,61 +986,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("❌ ፋይሉ አልተገኘም", show_alert=True)
         return
 
-    # ================================================================
-    # 🛒 የክፍያ ፍሰት - ግዢ
-    # ================================================================
+    # --- የክፍያ ፍሰት ---
     if data.startswith("buy_"):
         row_id = data.split("_")[1]
         book = db.get_content_by_id(row_id)
         
         if book:
-            if book['price'] <= 0:
-                # ነጻ መጽሐፍ
-                order_id = db.add_order(user_id, book['id'], 0, payment_ref="FREE_DOWNLOAD", status="paid")
-                if order_id:
-                    try:
-                        file_path = book['file_path']
-                        if os.path.exists(file_path):
-                            if lang == "am": await context.bot.send_message(chat_id=user_id, text=f"✅ ይዘቱ ወደ '📁 የእኔ ላይብረሪ' ተጨምሯል። ፋይሉ እነሆ፦")
-                            elif lang == "or": await context.bot.send_message(chat_id=user_id, text=f"✅ Kuusaa keessanitti dabalamuun, ፋይሉ ተልኳል፦")
-                            else: await context.bot.send_message(chat_id=user_id, text=f"✅ Saved to your library. Here is your file:")
-                            
-                            async with aiofiles.open(file_path, 'rb') as f:
-                                file_data = await f.read()
-                            await context.bot.send_document(chat_id=user_id, document=file_data, filename=os.path.basename(file_path), protect_content=True)
-                        else:
-                            if lang == "am": await context.bot.send_message(chat_id=user_id, text="❌ ይቅርታ፣ የይዘቱ ፋይል በሲስተሙ ላይ አልተገኘም።")
-                            else: await context.bot.send_message(chat_id=user_id, text="❌ Sorry, the file was not found on the server.")
-                    except Exception as e:
-                        logging.error(f"Error sending free file: {e}")
-                return
+            await show_payment_instructions(update, context, book)
+        return
 
-            # የሚከፈልበት መጽሐፍ
-            pay_msg = (
-                f"💳 **የክፍያ መመሪያ ({book['title']})**\n\n"
-                f"እባክዎ **{book['price']} ETB** ወደሚከተለው የቴሌብር (telebirr) ሂሳብ ያስገቡ፦\n\n"
-                f"📱 **የስልክ ቁጥር:** `{TELEBIRR_PHONE}`\n"
-                f"👤 **የአካውንት ስም:** `{TELEBIRR_ACCOUNT_NAME}`\n\n"
-                f"ክፍያውን ከፈጸሙ በኋላ የደረሰኝ ቁጥሩን (Transaction ID/Ref) ለመላክ ከታች ያለውን አዝራር ይጫኑ፦"
-            )
-            inline_kb = [[InlineKeyboardButton("📩 የደረሰኝ ቁጥር (Ref) አስገባ", callback_data=f"submit_ref_{book['id']}")]]
-            await context.bot.send_message(chat_id=user_id, text=pay_msg, reply_markup=InlineKeyboardMarkup(inline_kb), parse_mode="Markdown")
-
-    # ================================================================
-    # 📩 የደረሰኝ ቁጥር ማስገቢያ
-    # ================================================================
+    # --- የሪሲት ሊንክ አዝራር (ከተጠቃሚ ግቤት ይልቅ) ---
     elif data.startswith("submit_ref_"):
         book_id = data.split("_")[2]
-        context.user_data['buying_book_id'] = book_id
+        context.user_data['payment_book_id'] = book_id
         msg = "✍️ እባክዎ የቴሌብር የግብይት መለያ ቁጥሩን (Transaction Ref Number) እዚህ ይጻፉልን፦"
         if lang == "or": msg = "✍️ Maaloo lakkoofsa heeregaa (Ref) barreessi፦"
         elif lang == "en": msg = "✍️ Please type the Transaction Ref number here:"
         await context.bot.send_message(chat_id=user_id, text=msg)
         return AWAITING_TELEBIRR_REF
 
-    # ================================================================
-    # 📥 ዳውንሎድ (ከቤተ-መጻሕፍት)
-    # ================================================================
     elif data.startswith("download_"):
         content_id = data.split("_")[1]
         book = db.get_content_by_id(content_id)
@@ -941,9 +1021,67 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 file_data = await f.read()
             await context.bot.send_document(chat_id=user_id, document=file_data, filename=os.path.basename(book['file_path']), caption=f"📥 {book['title']}", protect_content=True)
 
-    # ================================================================
-    # 👑 አድሚን ይዘት ማጽደቅ
-    # ================================================================
+    # --- አድሚን ክፍያ ማጽደቅ (አዲስ ስርዓት) ---
+    elif data.startswith("admin_app_pay_"):
+        payment_id = int(data.split("_")[3])
+        
+        # ክፍያውን ማግኘት (በዓይነት)
+        payment = db.get_author_payment_by_id(payment_id)
+        payment_type = 'author'
+        if not payment:
+            payment = db.get_admin_payment_by_id(payment_id)
+            payment_type = 'admin'
+        
+        if not payment:
+            await query.edit_message_text("❌ ክፍያ አልተገኘም")
+            return
+        
+        # ማረጋገጥ
+        if payment_type == 'author':
+            success = db.admin_verify_author_payment(payment_id, "በአድሚን ጸድቋል")
+        else:
+            success = db.admin_verify_admin_payment(payment_id, "በአድሚን ጸድቋል")
+        
+        if success:
+            await query.edit_message_text("✅ ክፍያው ተረጋግጧል፣ ፋይሉ ለተጠቃሚው ተልኳል።")
+            
+            # ፋይሉን መላክ
+            book = db.get_content_by_id(payment['content_id'])
+            if book and os.path.exists(book['file_path']):
+                await context.bot.send_message(
+                    chat_id=payment['user_id'],
+                    text="✅ ክፍያዎ በአድሚን ተረጋግጧል! ያዘዙት ይዘት ከታች ተልኮልዎታል።"
+                )
+                async with aiofiles.open(book['file_path'], 'rb') as f:
+                    file_data = await f.read()
+                await context.bot.send_document(
+                    chat_id=payment['user_id'],
+                    document=file_data,
+                    filename=os.path.basename(book['file_path']),
+                    protect_content=True
+                )
+        else:
+            await query.edit_message_text("❌ ክፍያውን ማጽደቅ አልተቻለም።")
+        return
+
+    # --- አድሚን ክፍያ ውድቅ ማድረግ ---
+    elif data.startswith("admin_rej_pay_"):
+        payment_id = int(data.split("_")[3])
+        success = db.admin_reject_payment(payment_id, 'author', "በአድሚን ውድቅ ተደርጓል")
+        
+        if success:
+            await query.edit_message_text("❌ ክፍያው ውድቅ ተደርጓል።")
+            payment = db.get_author_payment_by_id(payment_id)
+            if payment:
+                await context.bot.send_message(
+                    chat_id=payment['user_id'],
+                    text="❌ ያስገቡት የክፍያ ማረጋገጫ ቁጥር ትክክል ባለመሆኑ በአድሚን ውድቅ ተደርጓል።"
+                )
+        else:
+            await query.edit_message_text("❌ ክፍያውን ውድቅ ማድረግ አልተቻለም።")
+        return
+
+    # --- አድሚን ይዘት ማጽደቅ ---
     elif data.startswith("approve_book_"):
         book_id = data.split("_")[2]
         res = db.approve_content(book_id)
@@ -957,10 +1095,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else: auth_msg = f"🎉 Congratulations! Your content '{book_title}' has been approved by the admin."
             try: await context.bot.send_message(chat_id=author_id, text=auth_msg)
             except: pass
+        return
 
-    # ================================================================
-    # 👑 አድሚን ይዘት መከልከል
-    # ================================================================
+    # --- አድሚን ይዘት መከልከል ---
     elif data.startswith("reject_book_"):
         book_id = data.split("_")[2]
         res = db.reject_content(book_id)
@@ -974,10 +1111,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else: auth_msg = f"😔 Sorry, your content '{book_title}' has been rejected by the admin."
             try: await context.bot.send_message(chat_id=author_id, text=auth_msg)
             except: pass
+        return
 
-    # ================================================================
-    # 👑 አድሚን ደራሲ ማጽደቅ
-    # ================================================================
+    # --- አድሚን ደራሲ ማጽደቅ ---
     elif data.startswith("approve_auth_"):
         target_user_id = data.split("_")[2]
         db.approve_author(target_user_id)
@@ -991,15 +1127,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else: auth_msg = "🎉 Congratulations! Your author application has been approved. You can now upload content!"
         try: await context.bot.send_message(chat_id=target_user_id, text=auth_msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
         except: pass
+        return
 
-    # ================================================================
-    # 👑 አድሚን ደራሲ መከልከል
-    # ================================================================
+    # --- አድሚን ደራሲ መከልከል ---
     elif data.startswith("reject_auth_"):
         target_user_id = data.split("_")[2]
         db.reject_author(target_user_id)
         await query.edit_message_text(text="❌ የደራሲነት ጥያቄው ውድቅ ተደርጓል።", reply_markup=None)
         return
+
+
+# =====================================================================
+# ⏳ የቴሌብር Ref መቀበያ (አሮጌ ስርዓት - ለኋላ ተኳሃኝነት)
+# =====================================================================
+async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የቴሌብር Ref ማስተናገጃ (አሮጌ ስርዓት)"""
+    # አሁን አዲሱን ስርዓት እየተጠቀምን ነው
+    # ይህ ለኋላ ተኳሃኝነት ተቀምጧል
+    await process_receipt_link(update, context)
 
 
 # =====================================================================
@@ -1057,6 +1202,7 @@ def main():
     
     print("✅ Kitab Bot በተሳካ ሁኔታ ተነስቷል...")
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
