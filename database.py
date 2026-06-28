@@ -12,8 +12,19 @@ from config import DB_NAME
 # =====================================================================
 # 🔌 የግንኙነት ረዳት (CONNECTION HELPER)
 # =====================================================================
+
 def _connect():
     """Row factory የተዘጋጀለት connection ይመልሳል (dict-like access ለ rows)."""
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def get_connection():
+    """
+    🔌 ለአስተዳዳሪ ቦት እና ለሌሎች አገልግሎቶች ጥቅም ላይ የሚውል connection ይመልሳል.
+    ይህ ተግባር የውሂብ ጎታ ግንኙነትን ከፍቶ ይመልሳል, እና መዘጋት በተጠቃሚው ኃላፊነት ነው.
+    """
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
@@ -515,6 +526,49 @@ def get_author_by_user_id(user_id):
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+# =====================================================================
+# 🆕 የአስተዳዳሪ ፓነል ረዳት ተግባራት (ADMIN PANEL HELPERS)
+# =====================================================================
+
+def get_pending_authors():
+    """
+    👤 በግምገማ ላይ ያሉ ደራሲያንን ዝርዝር ይመልሳል.
+    ይህ ተግባር የ'pending' ሁኔታ ያላቸውን ደራሲያን ይመልሳል.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT user_id, biography, joined_at 
+        FROM authors 
+        WHERE status = 'pending'
+        ORDER BY joined_at ASC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
+def get_pending_books():
+    """
+    📝 በግምገማ ላይ ያሉ ይዘቶችን ዝርዝር ይመልሳል.
+    ይህ ተግባር 'pending_encryption' እና 'pending_author_approval' 
+    ሁኔታ ያላቸውን ይዘቶች ይመልሳል.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT c.*, u.first_name as author_name, u.username as author_username
+        FROM contents c
+        JOIN authors a ON c.author_id = a.user_id
+        JOIN users u ON a.user_id = u.telegram_id
+        WHERE c.status IN ('pending_encryption', 'pending_author_approval')
+        ORDER BY c.created_at ASC
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
 
 # =====================================================================
