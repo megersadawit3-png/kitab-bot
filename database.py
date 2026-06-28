@@ -1,18 +1,13 @@
 """
 🗄️ database.py — የKitab ቦት ብቸኛ የዳታቤዝ ምንጭ (Single Source of Truth)
-
-ይህ ፋይል የሚከተሉትን ሁሉም የውሂብ ጎታ ተግባራት ይይዛል፦
-1. መሰረታዊ ሠንጠረዦች (ተጠቃሚ፣ ደራሲ፣ ይዘት፣ ትዕዛዝ)
-2. DRM ማመስጠር ስርዓት (አድሚኑ ከቦቱ ውጪ የሚያመስጥርበት)
-3. የክፍያ ስርዓት (ቀጥታ ወደ ደራሲ እና ወደ አድሚን)
-4. የአገልግሎት ክፍያ ስርዓት (በየ50 ሽያጭ)
 """
 
 import sqlite3
 import os
 import logging
+import re
+import uuid
 from config import DB_NAME
-
 
 # =====================================================================
 # 🔌 የግንኙነት ረዳት (CONNECTION HELPER)
@@ -25,12 +20,88 @@ def _connect():
 
 
 # =====================================================================
-# 🏗️ ስኪማ መፍጠሪያ (SCHEMA INITIALIZATION)
+# 🛡️ የደህንነት ተግባራት (SECURITY FUNCTIONS)
 # =====================================================================
+
+# የሚፈቀዱ የሠንጠረዥ ስሞች
+ALLOWED_TABLES = {
+    'author': 'author_payments',
+    'admin': 'admin_payments'
+}
+
+# የሚፈቀዱ የሁኔታ እሴቶች
+ALLOWED_STATUSES = {
+    'order': ['pending', 'paid', 'rejected', 'cancelled'],
+    'payment': ['pending', 'pending_admin', 'verified', 'rejected', 'completed'],
+    'author': ['pending', 'approved', 'rejected'],
+    'content': ['pending_encryption', 'pending_author_approval', 'approved', 'rejected', 'blocked']
+}
+
+def _get_payment_table(payment_type):
+    """
+    🛡️ ደህንነቱ የተጠበቀ የሠንጠረዥ ስም መመለስ
+    """
+    table = ALLOWED_TABLES.get(payment_type)
+    if not table:
+        raise ValueError(f"Invalid payment type: {payment_type}. Allowed: {list(ALLOWED_TABLES.keys())}")
+    return table
+
+def _validate_content_id(content_id):
+    if not isinstance(content_id, int):
+        raise TypeError(f"Content ID must be an integer, got {type(content_id).__name__}")
+    if content_id <= 0:
+        raise ValueError(f"Content ID must be positive, got {content_id}")
+    return True
+
+def _validate_user_id(user_id):
+    if not isinstance(user_id, int):
+        raise TypeError(f"User ID must be an integer, got {type(user_id).__name__}")
+    if user_id <= 0:
+        raise ValueError(f"User ID must be positive, got {user_id}")
+    return True
+
+def _validate_amount(amount):
+    if not isinstance(amount, (int, float)):
+        raise TypeError(f"Amount must be a number, got {type(amount).__name__}")
+    if amount < 0:
+        raise ValueError(f"Amount cannot be negative, got {amount}")
+    if amount > 1000000:
+        raise ValueError(f"Amount too large: {amount}")
+    return True
+
+def _validate_payment_id(payment_id):
+    if not isinstance(payment_id, int):
+        raise TypeError(f"Payment ID must be an integer, got {type(payment_id).__name__}")
+    if payment_id <= 0:
+        raise ValueError(f"Payment ID must be positive, got {payment_id}")
+    return True
+
+def _sanitize_filename(filename):
+    if not filename:
+        return f"file_{uuid.uuid4().hex[:8]}.pdf"
+    sanitized = re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
+    if not sanitized or sanitized == '_' * len(sanitized):
+        return f"file_{uuid.uuid4().hex[:8]}.pdf"
+    return sanitized
+
+def _sanitize_receipt_link(link):
+    if not link:
+        return None
+    if not link.startswith(('http://', 'https://')):
+        link = 'https://' + link
+    link = re.sub(r'[^a-zA-Z0-9/:._-]', '', link)
+    return link
+
+
+# =====================================================================
+# 🏗️ ስኪማ መፍጠሪያ - ከFOREIGN KEY ጋር
+# =====================================================================
+
 def init_db():
     """
-    ሁሉንም ጠረጴዛዎች ይፈጥራል።
+    ሁሉንም ጠረጴዛዎች ከFOREIGN KEY ግንኙነቶች ጋር ይፈጥራል።
     """
+    # ነባር ውሂብ ጎታ ካለ መዘጋት
     if os.path.exists(DB_NAME):
         try:
             conn = sqlite3.connect(DB_NAME)
@@ -47,9 +118,12 @@ def init_db():
 
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    
+    # FOREIGN KEY ማንቃት (በጣም አስፈላጊ!)
+    cursor.execute("PRAGMA foreign_keys = ON;")
 
     # ================================================================
-    # 1. መሰረታዊ ሠንጠረዦች (Core Tables)
+    # 1. መሰረታዊ ሠንጠረዦች (Core Tables) - ከFOREIGN KEY ጋር
     # ================================================================
 
     # 1.1 Users
@@ -65,18 +139,19 @@ def init_db():
         )
     ''')
 
-    # 1.2 Authors
+    # 1.2 Authors (FOREIGN KEY → users)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS authors (
             user_id INTEGER PRIMARY KEY,
             status TEXT DEFAULT 'pending',
             biography TEXT,
             joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(telegram_id) ON DELETE CASCADE
         )
     ''')
 
-    # 1.3 Contents (ዋናው ይዘት ሠንጠረዥ)
+    # 1.3 Contents (FOREIGN KEY → authors)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS contents (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,22 +163,17 @@ def init_db():
             file_path TEXT,
             encrypted_file_path TEXT,
             status TEXT DEFAULT 'pending_encryption',
-            -- status values:
-            -- pending_encryption: ለአድሚን መመስጠር ይጠበቃል
-            -- pending_author_approval: ተመስጥሮ ለደራሲ ማጽደቅ ይጠበቃል
-            -- approved: ጸድቋል እና ለሽያጭ ዝግጁ ነው
-            -- rejected: ውድቅ ተደርጓል
-            -- blocked: በአገልግሎት ክፍያ ምክንያት ታግዷል
             encryption_date TIMESTAMP,
             author_approval_date TIMESTAMP,
             author_approval_notes TEXT,
             sales_count INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (author_id) REFERENCES authors(user_id) ON DELETE CASCADE
         )
     ''')
 
-    # 1.4 Orders (ትዕዛዞች)
+    # 1.4 Orders (FOREIGN KEY → users, contents)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS orders (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,12 +182,12 @@ def init_db():
             amount REAL NOT NULL,
             payment_ref TEXT,
             status TEXT DEFAULT 'pending',
-            -- status values: pending, paid, rejected, cancelled
             payment_type TEXT DEFAULT 'author',
-            -- payment_type: 'author' (ወደ ደራሲ ቀጥታ), 'admin' (ወደ አድሚን)
             paid_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(telegram_id) ON DELETE CASCADE,
+            FOREIGN KEY (content_id) REFERENCES contents(id) ON DELETE CASCADE
         )
     ''')
 
@@ -137,7 +207,7 @@ def init_db():
     # 2. DRM ማመስጠር ስርዓት ሠንጠረዦች
     # ================================================================
 
-    # 2.1 Encryption Logs (የማመስጠር ታሪክ)
+    # 2.1 Encryption Logs (FOREIGN KEY → contents, users)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS encryption_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -146,15 +216,17 @@ def init_db():
             original_file_path TEXT,
             encrypted_file_path TEXT,
             encrypted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            notes TEXT
+            notes TEXT,
+            FOREIGN KEY (content_id) REFERENCES contents(id) ON DELETE CASCADE,
+            FOREIGN KEY (admin_id) REFERENCES users(telegram_id) ON DELETE CASCADE
         )
     ''')
 
     # ================================================================
-    # 3. የክፍያ ስርዓት ሠንጠረዦች
+    # 3. የክፍያ ስርዓት ሠንጠረዦች (ከFOREIGN KEY ጋር)
     # ================================================================
 
-    # 3.1 Author Payments (ቀጥታ ወደ ደራሲ ክፍያ - ለመጻሕፍት)
+    # 3.1 Author Payments
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS author_payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -169,13 +241,16 @@ def init_db():
             admin_verified_at TIMESTAMP,
             admin_notes TEXT,
             status TEXT DEFAULT 'pending',
-            -- status: pending, pending_admin, verified, rejected, completed
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+            FOREIGN KEY (author_id) REFERENCES authors(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(telegram_id) ON DELETE CASCADE,
+            FOREIGN KEY (content_id) REFERENCES contents(id) ON DELETE CASCADE
         )
     ''')
 
-    # 3.2 Admin Payments (ወደ አድሚን ክፍያ - ለHandouts እና Question Bank)
+    # 3.2 Admin Payments
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS admin_payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -189,17 +264,19 @@ def init_db():
             admin_verified_at TIMESTAMP,
             admin_notes TEXT,
             status TEXT DEFAULT 'pending',
-            -- status: pending, pending_admin, verified, rejected, completed
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(telegram_id) ON DELETE CASCADE,
+            FOREIGN KEY (content_id) REFERENCES contents(id) ON DELETE CASCADE
         )
     ''')
 
     # ================================================================
-    # 4. የአገልግሎት ክፍያ ስርዓት ሠንጠረዦች
+    # 4. የአገልግሎት ክፍያ ስርዓት ሠንጠረዦች (ከFOREIGN KEY ጋር)
     # ================================================================
 
-    # 4.1 Service Fees (የአገልግሎት ክፍያ መከታተያ)
+    # 4.1 Service Fees
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS service_fees (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -207,17 +284,18 @@ def init_db():
             content_id INTEGER NOT NULL,
             sales_count INTEGER DEFAULT 0,
             fee_due INTEGER DEFAULT 50,
-            -- fee_due: ክፍያ የሚጠበቀው የሽያጭ ብዛት (ቀጣዩ 50 ገደብ)
             fee_paid BOOLEAN DEFAULT 0,
             fee_amount REAL DEFAULT 0,
             fee_paid_at TIMESTAMP,
             content_blocked BOOLEAN DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (author_id) REFERENCES authors(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (content_id) REFERENCES contents(id) ON DELETE CASCADE
         )
     ''')
 
-    # 4.2 Content Blocks (የታገዱ ይዘቶች ታሪክ)
+    # 4.2 Content Blocks
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS content_blocks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -226,11 +304,14 @@ def init_db():
             blocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             unblocked_at TIMESTAMP,
             reason TEXT,
-            blocked_by INTEGER
+            blocked_by INTEGER,
+            FOREIGN KEY (content_id) REFERENCES contents(id) ON DELETE CASCADE,
+            FOREIGN KEY (author_id) REFERENCES authors(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (blocked_by) REFERENCES users(telegram_id) ON DELETE SET NULL
         )
     ''')
 
-    # 4.3 Service Fee Payments (የአገልግሎት ክፍያ ክፍያ ታሪክ)
+    # 4.3 Service Fee Payments
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS service_fee_payments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -242,7 +323,9 @@ def init_db():
             verified_by_admin BOOLEAN DEFAULT 0,
             verified_at TIMESTAMP,
             status TEXT DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (author_id) REFERENCES authors(user_id) ON DELETE CASCADE,
+            FOREIGN KEY (content_id) REFERENCES contents(id) ON DELETE CASCADE
         )
     ''')
 
@@ -250,7 +333,7 @@ def init_db():
     # 5. ሌሎች ረዳት ሠንጠረዦች
     # ================================================================
 
-    # 5.1 Categories (ምድቦች)
+    # 5.1 Categories
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS categories (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -261,7 +344,7 @@ def init_db():
         )
     ''')
 
-    # 5.2 Notifications (ማሳወቂያዎች)
+    # 5.2 Notifications (FOREIGN KEY → users)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -271,7 +354,8 @@ def init_db():
             content TEXT,
             is_read BOOLEAN DEFAULT 0,
             data TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(telegram_id) ON DELETE CASCADE
         )
     ''')
 
@@ -279,7 +363,6 @@ def init_db():
     # 📊 ማውጫዎች (Indexes)
     # ================================================================
 
-    # ለፍለጋ ፍጥነት
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_contents_status ON contents(status)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_contents_author_id ON contents(author_id)')
     cursor.execute('CREATE INDEX IF NOT EXISTS idx_contents_category ON contents(category)')
@@ -295,7 +378,32 @@ def init_db():
 
     conn.commit()
     conn.close()
-    logging.info("✅ የውሂብ ጎታ ሁሉም ሠንጠረዦች በተሳካ ሁኔታ ተፈጥረዋል ወይም አሉ።")
+    logging.info("✅ የውሂብ ጎታ ሁሉም ሠንጠረዦች ከFOREIGN KEY ግንኙነቶች ጋር በተሳካ ሁኔታ ተፈጥረዋል ወይም አሉ።")
+
+
+# =====================================================================
+# 🔍 FOREIGN KEY ማረጋገጫ
+# =====================================================================
+
+def verify_foreign_keys():
+    """
+    የFOREIGN KEY ግንኙነቶች በትክክል መስራታቸውን ያረጋግጣል
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    cursor.execute("PRAGMA foreign_keys = ON;")
+    cursor.execute("PRAGMA foreign_key_check;")
+    results = cursor.fetchall()
+    
+    conn.close()
+    
+    if results:
+        logging.warning(f"⚠️ FOREIGN KEY ችግሮች ተገኝተዋል: {results}")
+        return False
+    else:
+        logging.info("✅ ሁሉም FOREIGN KEY ግንኙነቶች በትክክል ይሰራሉ")
+        return True
 
 
 # =====================================================================
@@ -415,10 +523,18 @@ def get_author_by_user_id(user_id):
 
 def add_content(author_id, title, category, description, price, file_path):
     """
-    አዲስ ይዘት በ'pending_encryption' ሁኔታ ይመዘግባል
+    አዲስ ይዘት ይመዘግባል
+    author_id በauthors ሠንጠረዥ ውስጥ መኖሩን ያረጋግጣል
     """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    
+    # author_id መኖሩን ማረጋገጥ
+    cursor.execute("SELECT user_id FROM authors WHERE user_id = ?", (author_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise ValueError(f"Author with ID {author_id} does not exist")
+    
     cursor.execute("""
         INSERT INTO contents (author_id, title, category, description, price, file_path, status)
         VALUES (?, ?, ?, ?, ?, ?, 'pending_encryption')
@@ -429,16 +545,31 @@ def add_content(author_id, title, category, description, price, file_path):
     return inserted_id
 
 
-def get_contents_by_category(category):
+def get_contents_by_category(category, limit=50, offset=0):
+    if not category or not isinstance(category, str):
+        logging.error(f"Invalid category: {category}")
+        return []
+    
     conn = _connect()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM contents WHERE category = ? AND status = 'approved'", (category,))
+    cursor.execute("""
+        SELECT * FROM contents 
+        WHERE category = ? AND status = 'approved'
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+    """, (category, limit, offset))
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
 
 
 def get_content_by_id(content_id):
+    try:
+        _validate_content_id(content_id)
+    except (ValueError, TypeError) as e:
+        logging.error(f"Invalid content_id: {e}")
+        return None
+    
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM contents WHERE id = ?", (content_id,))
@@ -456,25 +587,58 @@ def get_content_by_title(title):
     return dict(row) if row else None
 
 
-def execute_search_query(query_text):
+def execute_search_query(query_text, limit=20):
+    if not query_text or not isinstance(query_text, str):
+        return []
+    
+    safe_query = re.sub(r'[^a-zA-Z0-9አ-፥\s]', '', query_text)
+    if not safe_query:
+        return []
+    
     conn = _connect()
     cursor = conn.cursor()
-    cursor.execute(
-        "SELECT * FROM contents WHERE (title LIKE ? OR description LIKE ?) AND status = 'approved'",
-        (f"%{query_text}%", f"%{query_text}%")
-    )
+    cursor.execute("""
+        SELECT * FROM contents 
+        WHERE (title LIKE ? OR description LIKE ?) AND status = 'approved'
+        ORDER BY 
+            CASE 
+                WHEN title LIKE ? THEN 1 
+                ELSE 2 
+            END,
+            created_at DESC
+        LIMIT ?
+    """, (f"%{safe_query}%", f"%{safe_query}%", f"{safe_query}%", limit))
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
 
 
-def get_all_contents():
+def get_all_contents(limit=100, offset=0):
+    if not isinstance(limit, int) or limit <= 0:
+        limit = 100
+    if not isinstance(offset, int) or offset < 0:
+        offset = 0
+    
     conn = _connect()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM contents ORDER BY id DESC")
+    cursor.execute("""
+        SELECT * FROM contents 
+        ORDER BY id DESC 
+        LIMIT ? OFFSET ?
+    """, (limit, offset))
     rows = cursor.fetchall()
+    
+    cursor.execute("SELECT COUNT(*) FROM contents")
+    total = cursor.fetchone()[0]
     conn.close()
-    return [dict(row) for row in rows]
+    
+    return {
+        'items': [dict(row) for row in rows],
+        'total': total,
+        'limit': limit,
+        'offset': offset,
+        'next_offset': offset + limit if offset + limit < total else None
+    }
 
 
 def get_author_contents(author_id):
@@ -487,13 +651,10 @@ def get_author_contents(author_id):
 
 
 # =====================================================================
-# 🔐 DRM ማመስጠር ስርዓት ፈንክሽኖች (ADMIN HANDLES ENCRYPTION)
+# 🔐 DRM ማመስጠር ስርዓት ፈንክሽኖች
 # =====================================================================
 
 def get_contents_pending_encryption(limit=50):
-    """
-    ለመመስጠር የሚጠበቁ ይዘቶችን ይመልሳል (ለአድሚን)
-    """
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("""
@@ -511,13 +672,9 @@ def get_contents_pending_encryption(limit=50):
 
 
 def update_content_with_encrypted_file(content_id, encrypted_file_path, admin_id, notes=""):
-    """
-    አድሚኑ የተመሰጠረውን ፋይል ከጫነ በኋላ ሁኔታውን ያዘምናል
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # ይዘቱን አዘምን
     cursor.execute("""
         UPDATE contents 
         SET encrypted_file_path = ?,
@@ -528,7 +685,6 @@ def update_content_with_encrypted_file(content_id, encrypted_file_path, admin_id
     """, (encrypted_file_path, content_id))
     affected = cursor.rowcount
     
-    # በ encryption_logs ውስጥ መዝግብ
     cursor.execute("""
         INSERT INTO encryption_logs (content_id, admin_id, original_file_path, encrypted_file_path, notes)
         SELECT ?, ?, file_path, ?, ?
@@ -541,9 +697,6 @@ def update_content_with_encrypted_file(content_id, encrypted_file_path, admin_id
 
 
 def get_contents_pending_author_approval(author_user_id, limit=50):
-    """
-    ለደራሲ ማጽደቅ የሚጠበቁ ይዘቶችን ይመልሳል
-    """
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("""
@@ -561,9 +714,6 @@ def get_contents_pending_author_approval(author_user_id, limit=50):
 
 
 def author_approve_content(content_id, notes=""):
-    """
-    ደራሲው ይዘቱን ያጸድቃል
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -581,9 +731,6 @@ def author_approve_content(content_id, notes=""):
 
 
 def author_reject_content(content_id, reason=""):
-    """
-    ደራሲው ይዘቱን ውድቅ ያደርጋል
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -601,9 +748,6 @@ def author_reject_content(content_id, reason=""):
 
 
 def get_content_encryption_status(content_id):
-    """
-    የአንድ ይዘት የማመስጠር ሁኔታ ይመልሳል
-    """
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("""
@@ -616,9 +760,6 @@ def get_content_encryption_status(content_id):
 
 
 def get_original_file_path(content_id):
-    """
-    የዋናውን ፋይል መንገድ ይመልሳል (ለአድሚን ማውረድ)
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT file_path FROM contents WHERE id = ?", (content_id,))
@@ -631,13 +772,7 @@ def get_original_file_path(content_id):
 # 💰 የክፍያ ስርዓት ፈንክሽኖች
 # =====================================================================
 
-# ---------- ጠቅላላ ተግባራት ----------
-
 def is_book_content(content_id):
-    """
-    ይዘቱ መጽሐፍ (Book) መሆኑን ያረጋግጣል
-    (Handouts እና Question Bank ሳይሆን)
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("SELECT category FROM contents WHERE id = ?", (content_id,))
@@ -646,17 +781,11 @@ def is_book_content(content_id):
     if not row:
         return False
     category = row[0]
-    # መጽሐፍት: Literature, Education, Religion, History, Business, Technology
     book_categories = ['Literature', 'Education', 'Religion', 'History', 'Business', 'Technology']
     return category in book_categories
 
 
-# ---------- የደራሲ ቀጥታ ክፍያ ----------
-
 def create_author_payment(order_id, author_id, user_id, content_id, amount):
-    """
-    አዲስ የደራሲ ቀጥታ ክፍያ ይመዘግባል
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -670,9 +799,6 @@ def create_author_payment(order_id, author_id, user_id, content_id, amount):
 
 
 def create_admin_payment(order_id, user_id, content_id, amount):
-    """
-    አዲስ የአድሚን ክፍያ ይመዘግባል (ለHandouts እና Question Bank)
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -686,31 +812,42 @@ def create_admin_payment(order_id, user_id, content_id, amount):
 
 
 def submit_receipt_link(payment_id, receipt_link, receipt_ref, payment_type='author'):
-    """
-    ገዢው የቴሌብር ሪሲት ሊንክ ያስገባል
-    payment_type: 'author' ወይም 'admin'
-    """
-    table = 'author_payments' if payment_type == 'author' else 'admin_payments'
+    try:
+        _validate_payment_id(payment_id)
+        table = _get_payment_table(payment_type)
+    except (ValueError, TypeError) as e:
+        logging.error(f"Invalid input in submit_receipt_link: {e}")
+        return False
+    
+    safe_link = _sanitize_receipt_link(receipt_link)
+    safe_ref = _sanitize_receipt_link(receipt_ref) if receipt_ref else None
+    
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(f"""
-        UPDATE {table}
-        SET receipt_link = ?,
-            receipt_ref = ?,
-            status = 'pending_admin',
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND status = 'pending'
-    """, (receipt_link, receipt_ref, payment_id))
-    affected = cursor.rowcount
-    conn.commit()
-    conn.close()
-    return affected > 0
+    try:
+        cursor.execute(f"""
+            UPDATE {table}
+            SET receipt_link = ?,
+                receipt_ref = ?,
+                status = 'pending_admin',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = 'pending'
+        """, (safe_link, safe_ref, payment_id))
+        affected = cursor.rowcount
+        conn.commit()
+        return affected > 0
+    except sqlite3.Error as e:
+        logging.error(f"Database error in submit_receipt_link: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
 
 
 def get_pending_author_payments(limit=50):
-    """
-    አድሚን ሊያረጋግጣቸው የሚጠበቁ የደራሲ ክፍያዎች
-    """
+    if not isinstance(limit, int) or limit <= 0:
+        limit = 50
+    
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("""
@@ -734,9 +871,9 @@ def get_pending_author_payments(limit=50):
 
 
 def get_pending_admin_payments(limit=50):
-    """
-    አድሚን ሊያረጋግጣቸው የሚጠበቁ የአድሚን ክፍያዎች (Handouts/Question Bank)
-    """
+    if not isinstance(limit, int) or limit <= 0:
+        limit = 50
+    
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("""
@@ -758,133 +895,164 @@ def get_pending_admin_payments(limit=50):
 
 
 def admin_verify_author_payment(payment_id, admin_notes=""):
-    """
-    አድሚኑ የደራሲ ክፍያውን ያረጋግጣል
-    """
+    try:
+        _validate_payment_id(payment_id)
+    except (ValueError, TypeError) as e:
+        logging.error(f"Invalid payment_id in admin_verify_author_payment: {e}")
+        return False
+    
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE author_payments 
-        SET admin_verified = 1,
-            admin_verified_at = CURRENT_TIMESTAMP,
-            admin_notes = ?,
-            status = 'verified',
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND status = 'pending_admin'
-    """, (admin_notes, payment_id))
-    affected = cursor.rowcount
-    conn.commit()
-    conn.close()
-    if affected > 0:
-        _complete_payment(payment_id, 'author')
-    return affected > 0
+    try:
+        cursor.execute("BEGIN TRANSACTION;")
+        cursor.execute("""
+            UPDATE author_payments 
+            SET admin_verified = 1,
+                admin_verified_at = CURRENT_TIMESTAMP,
+                admin_notes = ?,
+                status = 'verified',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = 'pending_admin'
+        """, (admin_notes, payment_id))
+        affected = cursor.rowcount
+        conn.commit()
+        if affected > 0:
+            _complete_payment(payment_id, 'author')
+        return affected > 0
+    except sqlite3.Error as e:
+        logging.error(f"Database error in admin_verify_author_payment: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
 
 
 def admin_verify_admin_payment(payment_id, admin_notes=""):
-    """
-    አድሚኑ የአድሚን ክፍያውን ያረጋግጣል (Handouts/Question Bank)
-    """
+    try:
+        _validate_payment_id(payment_id)
+    except (ValueError, TypeError) as e:
+        logging.error(f"Invalid payment_id in admin_verify_admin_payment: {e}")
+        return False
+    
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE admin_payments 
-        SET admin_verified = 1,
-            admin_verified_at = CURRENT_TIMESTAMP,
-            admin_notes = ?,
-            status = 'verified',
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND status = 'pending_admin'
-    """, (admin_notes, payment_id))
-    affected = cursor.rowcount
-    conn.commit()
-    conn.close()
-    if affected > 0:
-        _complete_payment(payment_id, 'admin')
-    return affected > 0
+    try:
+        cursor.execute("BEGIN TRANSACTION;")
+        cursor.execute("""
+            UPDATE admin_payments 
+            SET admin_verified = 1,
+                admin_verified_at = CURRENT_TIMESTAMP,
+                admin_notes = ?,
+                status = 'verified',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = 'pending_admin'
+        """, (admin_notes, payment_id))
+        affected = cursor.rowcount
+        conn.commit()
+        if affected > 0:
+            _complete_payment(payment_id, 'admin')
+        return affected > 0
+    except sqlite3.Error as e:
+        logging.error(f"Database error in admin_verify_admin_payment: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
 
 
 def admin_reject_payment(payment_id, payment_type='author', reason=""):
-    """
-    አድሚኑ ክፍያውን ውድቅ ያደርጋል
-    """
-    table = 'author_payments' if payment_type == 'author' else 'admin_payments'
+    try:
+        _validate_payment_id(payment_id)
+        table = _get_payment_table(payment_type)
+    except (ValueError, TypeError) as e:
+        logging.error(f"Invalid input in admin_reject_payment: {e}")
+        return False
+    
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute(f"""
-        UPDATE {table}
-        SET status = 'rejected',
-            admin_notes = ?,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND status = 'pending_admin'
-    """, (reason, payment_id))
-    affected = cursor.rowcount
-    conn.commit()
-    conn.close()
-    if affected > 0:
-        _reject_payment(payment_id, payment_type)
-    return affected > 0
+    try:
+        cursor.execute(f"""
+            UPDATE {table}
+            SET status = 'rejected',
+                admin_notes = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = 'pending_admin'
+        """, (reason, payment_id))
+        affected = cursor.rowcount
+        conn.commit()
+        if affected > 0:
+            _reject_payment(payment_id, payment_type)
+        return affected > 0
+    except sqlite3.Error as e:
+        logging.error(f"Database error in admin_reject_payment: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
 
 
 def _complete_payment(payment_id, payment_type):
-    """
-    ክፍያ ከተረጋገጠ በኋላ የሚሰራ (ውስጣዊ ተግባር)
-    """
+    try:
+        _validate_payment_id(payment_id)
+        table = _get_payment_table(payment_type)
+    except (ValueError, TypeError) as e:
+        logging.error(f"Invalid input in _complete_payment: {e}")
+        return
+    
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    
-    table = 'author_payments' if payment_type == 'author' else 'admin_payments'
-    
-    # ትዕዛዙን ማዘመን
-    cursor.execute(f"""
-        UPDATE orders 
-        SET status = 'paid', paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-        WHERE id = (SELECT order_id FROM {table} WHERE id = ?)
-    """, (payment_id,))
-    
-    # የክፍያ ሁኔታ ማዘመን
-    cursor.execute(f"""
-        UPDATE {table} 
-        SET status = 'completed', updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-    """, (payment_id,))
-    
-    # የሽያጭ ብዛት መጨመር እና የአገልግሎት ክፍያ ማረጋገጥ (ለመጻሕፍት ብቻ)
-    cursor.execute(f"""
-        SELECT content_id, author_id FROM {table} WHERE id = ?
-    """, (payment_id,))
-    row = cursor.fetchone()
-    if row:
-        content_id, author_id = row
-        # ይዘቱ መጽሐፍ መሆኑን ማረጋገጥ
-        if is_book_content(content_id):
-            increment_sales_count_and_check_fee(content_id, author_id)
-    
-    conn.commit()
-    conn.close()
+    try:
+        cursor.execute("BEGIN TRANSACTION;")
+        cursor.execute(f"""
+            UPDATE orders 
+            SET status = 'paid', paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = (SELECT order_id FROM {table} WHERE id = ?)
+        """, (payment_id,))
+        cursor.execute(f"""
+            UPDATE {table} 
+            SET status = 'completed', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (payment_id,))
+        cursor.execute(f"""
+            SELECT content_id, author_id FROM {table} WHERE id = ?
+        """, (payment_id,))
+        row = cursor.fetchone()
+        if row:
+            content_id, author_id = row
+            if is_book_content(content_id):
+                increment_sales_count_and_check_fee(content_id, author_id)
+        conn.commit()
+    except sqlite3.Error as e:
+        logging.error(f"Database error in _complete_payment: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 
 def _reject_payment(payment_id, payment_type):
-    """
-    ክፍያ ውድቅ ሲደረግ የሚሰራ (ውስጣዊ ተግባር)
-    """
+    try:
+        table = _get_payment_table(payment_type)
+    except ValueError as e:
+        logging.error(f"Invalid payment_type in _reject_payment: {e}")
+        return
+    
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    table = 'author_payments' if payment_type == 'author' else 'admin_payments'
-    
-    cursor.execute(f"""
-        UPDATE orders 
-        SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
-        WHERE id = (SELECT order_id FROM {table} WHERE id = ?)
-    """, (payment_id,))
-    
-    conn.commit()
-    conn.close()
+    try:
+        cursor.execute(f"""
+            UPDATE orders 
+            SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
+            WHERE id = (SELECT order_id FROM {table} WHERE id = ?)
+        """, (payment_id,))
+        conn.commit()
+    except sqlite3.Error as e:
+        logging.error(f"Database error in _reject_payment: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 
 def get_author_payment_by_id(payment_id):
-    """
-    በመታወቂያ የደራሲ ክፍያ ያገኛል
-    """
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM author_payments WHERE id = ?", (payment_id,))
@@ -894,9 +1062,6 @@ def get_author_payment_by_id(payment_id):
 
 
 def get_admin_payment_by_id(payment_id):
-    """
-    በመታወቂያ የአድሚን ክፍያ ያገኛል
-    """
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM admin_payments WHERE id = ?", (payment_id,))
@@ -910,10 +1075,21 @@ def get_admin_payment_by_id(payment_id):
 def add_order(user_id, content_id, amount, payment_ref, payment_type='author', status="pending"):
     """
     አዲስ ትዕዛዝ ይመዘግባል
-    payment_type: 'author' (ወደ ደራሲ) ወይም 'admin' (ወደ አድሚን)
+    user_id እና content_id መኖራቸውን ያረጋግጣል
     """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
+    
+    cursor.execute("SELECT telegram_id FROM users WHERE telegram_id = ?", (user_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise ValueError(f"User with ID {user_id} does not exist")
+    
+    cursor.execute("SELECT id FROM contents WHERE id = ?", (content_id,))
+    if not cursor.fetchone():
+        conn.close()
+        raise ValueError(f"Content with ID {content_id} does not exist")
+    
     try:
         cursor.execute("""
             INSERT INTO orders (user_id, content_id, amount, payment_ref, status, payment_type)
@@ -922,17 +1098,15 @@ def add_order(user_id, content_id, amount, payment_ref, payment_type='author', s
         order_id = cursor.lastrowid
         conn.commit()
         return order_id
-    except sqlite3.IntegrityError:
+    except sqlite3.IntegrityError as e:
         conn.rollback()
+        logging.error(f"Integrity error in add_order: {e}")
         return None
     finally:
         conn.close()
 
 
 def approve_payment(user_id, content_id, payment_ref):
-    """
-    ክፍያን ያጸድቃል (የቆየ ተግባር - ለኋላ ተኳሃኝነት)
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute(
@@ -944,9 +1118,6 @@ def approve_payment(user_id, content_id, payment_ref):
 
 
 def reject_payment(user_id, content_id):
-    """
-    ክፍያን ውድቅ ያደርጋል (የቆየ ተግባር - ለኋላ ተኳሃኝነት)
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute(
@@ -998,18 +1169,14 @@ def get_content_sales_count(content_id):
 # 📊 የአገልግሎት ክፍያ ስርዓት ፈንክሽኖች
 # =====================================================================
 
-FEE_THRESHOLD = 50      # በየ50 ሽያጭ ክፍያ ይጠየቃል
-DEFAULT_FEE_AMOUNT = 0  # ለሙከራ 0 ነው፣ በእውነተኛ ስርዓት መጠን ይወሰናል
+FEE_THRESHOLD = 50
+DEFAULT_FEE_AMOUNT = 0
 
 
 def increment_sales_count_and_check_fee(content_id, author_id):
-    """
-    የሽያጭ ብዛት ይጨምራል እና የአገልግሎት ክፍያ ገደብ ላይ ከደረሰ ያሳውቃል
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # የአሁኑን ሁኔታ ማግኘት
     cursor.execute("""
         SELECT id, sales_count, fee_due, fee_paid, content_blocked 
         FROM service_fees 
@@ -1017,17 +1184,14 @@ def increment_sales_count_and_check_fee(content_id, author_id):
     """, (content_id, author_id))
     row = cursor.fetchone()
     
-    # የይዘቱን ሽያጭ ብዛት አዘምን
     cursor.execute("UPDATE contents SET sales_count = sales_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (content_id,))
     
     if row:
         fee_id, sales_count, fee_due, fee_paid, content_blocked = row
         new_count = sales_count + 1
         
-        # አዲስ ሽያጭ ሲጨመር fee_due ን አዘምን
         if new_count >= fee_due:
             if fee_paid:
-                # ክፍያ ተከፍሏል, ስለዚህ fee_due ን ወደ አሁኑ ሽያጭ አዘምን (ቀጣዩ 50 ገደብ)
                 new_fee_due = new_count + FEE_THRESHOLD
                 cursor.execute("""
                     UPDATE service_fees 
@@ -1035,32 +1199,27 @@ def increment_sales_count_and_check_fee(content_id, author_id):
                     WHERE id = ?
                 """, (new_count, new_fee_due, fee_id))
             else:
-                # ክፍያ አልተከፈለም, መጽሐፉን አግድ
                 cursor.execute("""
                     UPDATE service_fees 
                     SET sales_count = ?, content_blocked = 1, updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """, (new_count, fee_id))
-                # የይዘቱን ሁኔታ ወደ 'blocked' ቀይር
                 cursor.execute("""
                     UPDATE contents SET status = 'blocked', updated_at = CURRENT_TIMESTAMP WHERE id = ?
                 """, (content_id,))
-                # በ content_blocks ውስጥ መዝግብ
                 cursor.execute("""
                     INSERT INTO content_blocks (content_id, author_id, reason)
                     VALUES (?, ?, ?)
                 """, (content_id, author_id, f"Service fee not paid after {FEE_THRESHOLD} sales"))
         else:
-            # ገደብ አልደረሰም, ሽያጭ ብቻ ጨምር
             cursor.execute("""
                 UPDATE service_fees 
                 SET sales_count = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             """, (new_count, fee_id))
     else:
-        # አዲስ መዝገብ ፍጠር
         sales_count = 1
-        fee_due = FEE_THRESHOLD  # የመጀመሪያው 50 ሽያጭ ላይ ክፍያ
+        fee_due = FEE_THRESHOLD
         cursor.execute("""
             INSERT INTO service_fees (author_id, content_id, sales_count, fee_due, fee_amount)
             VALUES (?, ?, ?, ?, ?)
@@ -1072,9 +1231,6 @@ def increment_sales_count_and_check_fee(content_id, author_id):
 
 
 def get_author_service_fees(author_id):
-    """
-    የአንድ ደራሲ ሁሉንም የአገልግሎት ክፍያ ሪፖርቶች ይመልሳል
-    """
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("""
@@ -1090,13 +1246,9 @@ def get_author_service_fees(author_id):
 
 
 def pay_service_fee(author_id, content_id, fee_amount):
-    """
-    የአገልግሎት ክፍያ ተከፍሏል ተብሎ ይመዘገባል
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # በ service_fees ውስጥ አዘምን
     cursor.execute("""
         UPDATE service_fees 
         SET fee_paid = 1, fee_paid_at = CURRENT_TIMESTAMP, fee_amount = ?, updated_at = CURRENT_TIMESTAMP
@@ -1104,7 +1256,6 @@ def pay_service_fee(author_id, content_id, fee_amount):
     """, (fee_amount, author_id, content_id))
     affected = cursor.rowcount
     
-    # በ service_fee_payments ውስጥ መዝግብ
     if affected > 0:
         cursor.execute("""
             INSERT INTO service_fee_payments (author_id, content_id, amount, status)
@@ -1117,9 +1268,6 @@ def pay_service_fee(author_id, content_id, fee_amount):
 
 
 def admin_verify_service_fee_payment(fee_payment_id, admin_notes=""):
-    """
-    አድሚኑ የአገልግሎት ክፍያ ክፍያን ያረጋግጣል
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -1136,26 +1284,20 @@ def admin_verify_service_fee_payment(fee_payment_id, admin_notes=""):
 
 
 def unblock_author_content(author_id, content_id):
-    """
-    የታገደ ይዘት እግዱን ይነሳል
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # የይዘቱን ሁኔታ 'approved' አድርግ
     cursor.execute("""
         UPDATE contents SET status = 'approved', updated_at = CURRENT_TIMESTAMP 
         WHERE id = ? AND author_id = ?
     """, (content_id, author_id))
     
-    # በ service_fees ውስጥ content_blocked ን አስወግድ
     cursor.execute("""
         UPDATE service_fees 
         SET content_blocked = 0, updated_at = CURRENT_TIMESTAMP
         WHERE content_id = ? AND author_id = ?
     """, (content_id, author_id))
     
-    # በ content_blocks ውስጥ ማስታወሻ
     cursor.execute("""
         UPDATE content_blocks 
         SET unblocked_at = CURRENT_TIMESTAMP
@@ -1168,9 +1310,6 @@ def unblock_author_content(author_id, content_id):
 
 
 def get_blocked_contents():
-    """
-    ሁሉንም የታገዱ ይዘቶች ዝርዝር ይመልሳል
-    """
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("""
@@ -1195,9 +1334,6 @@ def get_blocked_contents():
 # =====================================================================
 
 def get_pending_counts():
-    """
-    በግምገማ ላይ ያሉ ይዘቶችን እና ክፍያዎችን ብዛት ይመልሳል
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
@@ -1235,9 +1371,6 @@ def get_pending_counts():
 # =====================================================================
 
 def get_author_sales(author_id):
-    """
-    የአንድ ደራሲ አጠቃላይ የሽያጭ መረጃ ይመልሳል
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
@@ -1274,9 +1407,6 @@ def get_author_sales(author_id):
 
 
 def get_author_rankings(limit=10):
-    """
-    🏆 ከፍተኛ ገቢ ያላቸውን ደራሲያን ይመልሳል
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -1301,9 +1431,6 @@ def get_author_rankings(limit=10):
 
 
 def get_category_stats():
-    """
-    📈 በምድብ የሽያጭ ስታቲስቲክስ
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute("""
@@ -1323,9 +1450,6 @@ def get_category_stats():
 
 
 def get_user_stats():
-    """
-    👤 የተጠቃሚ ስታቲስቲክስ
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
@@ -1351,7 +1475,6 @@ def get_user_stats():
 
 
 def get_all_users(limit=50, offset=0):
-    """👤 የተጠቃሚ ዝርዝር ይመልሳል"""
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("""
@@ -1366,7 +1489,6 @@ def get_all_users(limit=50, offset=0):
 
 
 def search_users(query):
-    """👤 ተጠቃሚዎችን በስም ወይም በID ይፈልጋል"""
     conn = _connect()
     cursor = conn.cursor()
     cursor.execute("""
@@ -1382,14 +1504,9 @@ def search_users(query):
 
 
 def get_author_sales_report(author_id, period='all'):
-    """
-    የደራሲውን የሽያጭ ሪፖርት በጊዜ ይመልሳል
-    period: 'day', 'week', 'month', 'year', 'all'
-    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # የጊዜ ሁኔታ ማዘጋጀት
     time_filter = ""
     if period == 'day':
         time_filter = "AND o.paid_at >= date('now', '-1 day')"
@@ -1400,7 +1517,6 @@ def get_author_sales_report(author_id, period='all'):
     elif period == 'year':
         time_filter = "AND o.paid_at >= date('now', '-365 days')"
     
-    # አጠቃላይ ስታቲስቲክስ
     cursor.execute(f"""
         SELECT 
             COUNT(*) as total_transactions,
@@ -1411,10 +1527,8 @@ def get_author_sales_report(author_id, period='all'):
         WHERE c.author_id = ? AND o.status = 'paid'
         {time_filter}
     """, (author_id,))
-    
     stats = cursor.fetchone()
     
-    # የገዢዎች ዝርዝር
     cursor.execute(f"""
         SELECT 
             u.telegram_id,
@@ -1432,7 +1546,6 @@ def get_author_sales_report(author_id, period='all'):
         {time_filter}
         ORDER BY o.paid_at DESC
     """, (author_id,))
-    
     buyers = cursor.fetchall()
     
     conn.close()
