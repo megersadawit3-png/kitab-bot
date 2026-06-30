@@ -17,8 +17,9 @@ from utils import security
 # የሎግ ማስተካከያ
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.DEBUG
 )
+logger = logging.getLogger(__name__)
 
 
 # =====================================================================
@@ -36,13 +37,13 @@ def create_database_backup():
     backup_path = f"backups/{backup_name}"
     
     shutil.copy2(DB_NAME, backup_path)
-    logging.info(f"💾 ምትኬ ተወስዷል: {backup_path}")
+    logger.info(f"💾 ምትኬ ተወስዷል: {backup_path}")
     
     backups = sorted([f for f in os.listdir("backups") if f.endswith('.db')])
     if len(backups) > 30:
         for old_backup in backups[:-30]:
             os.remove(f"backups/{old_backup}")
-            logging.info(f"🗑️ አሮጌ ምትኬ ተወግዷል: {old_backup}")
+            logger.info(f"🗑️ አሮጌ ምትኬ ተወግዷል: {old_backup}")
     
     return backup_path
 
@@ -129,6 +130,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     user_id = update.effective_user.id
     
+    logger.info(f"📨 ካልባክ ተቀብሏል: {data} (from user {user_id})")
+    
     if user_id != ADMIN_ID:
         await query.edit_message_text("⛔ ፈቃድ የሎትም")
         return
@@ -161,7 +164,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📁 {os.path.basename(backup_path)}"
             )
         except Exception as e:
-            logging.error(f"Backup error: {e}")
+            logger.error(f"Backup error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     # ================================================================
@@ -188,7 +191,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [[InlineKeyboardButton("🔙 ወደ ዋና ሜኑ", callback_data="admin_menu")]]
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         except Exception as e:
-            logging.error(f"Top authors error: {e}")
+            logger.error(f"Top authors error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     # ================================================================
@@ -215,7 +218,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [[InlineKeyboardButton("🔙 ወደ ዋና ሜኑ", callback_data="admin_menu")]]
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         except Exception as e:
-            logging.error(f"Category stats error: {e}")
+            logger.error(f"Category stats error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     # ================================================================
@@ -245,7 +248,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         except Exception as e:
-            logging.error(f"Users list error: {e}")
+            logger.error(f"Users list error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     # ================================================================
@@ -318,48 +321,145 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         except Exception as e:
-            logging.error(f"Pending encryption error: {e}")
+            logger.error(f"Pending encryption error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
+    # ================================================================
+    # 📥 ዋናውን ፋይል ማውረድ (DRM ማመስጠር ፓነል)
+    # ================================================================
     elif data.startswith("admin_download_original_"):
         try:
             book_id = int(data.split("_")[3])
-            security._validate_content_id(book_id)
+            logger.info(f"📥 ፋይል ማውረድ ተጠይቋል: Book ID = {book_id}")
             
-            book = db.get_content_by_id(book_id)
-            if not book or not os.path.exists(book['file_path']):
-                await query.answer("❌ ፋይሉ አልተገኘም", show_alert=True)
+            # መታወቂያ ማረጋገጥ
+            try:
+                security._validate_content_id(book_id)
+            except (ValueError, TypeError) as e:
+                logger.error(f"Invalid book ID: {e}")
+                await query.answer(f"❌ የተሳሳተ መታወቂያ: {e}", show_alert=True)
                 return
             
-            async with aiofiles.open(book['file_path'], 'rb') as f:
-                file_data = await f.read()
+            # ይዘቱን ማግኘት
+            book = db.get_content_by_id(book_id)
             
-            await context.bot.send_document(
-                chat_id=user_id,
-                document=file_data,
-                filename=f"original_{book_id}.pdf",
-                caption=f"📚 {book['title']}\n"
-                       f"📌 ዋናው ፋይል ለDRM መመስጠር\n\n"
-                       f"✍️ እባክዎ ፋይሉን በVeryPDF (ወይም በሚፈለገው መሳሪያ) በመመስጠር "
-                       f"ከዚያም የተመሰጠረውን ፋይል '📤 የተመሰጠረ ጫን' በመጫን ይመልሱ።"
-            )
-            await query.answer("✅ ፋይሉ ተልኳል")
+            if not book:
+                logger.error(f"Book with ID {book_id} not found in database")
+                await query.answer("❌ ይዘቱ በውሂብ ጎታ ውስጥ አልተገኘም", show_alert=True)
+                return
+            
+            # የፋይል መንገድ ማረጋገጥ
+            file_path = book.get('file_path')
+            logger.info(f"📁 የተገኘ የፋይል መንገድ: {file_path}")
+            
+            if not file_path:
+                logger.error(f"File path missing for book {book_id}")
+                await query.answer("❌ የፋይል መንገድ በውሂብ ጎታ ውስጥ አልተገኘም", show_alert=True)
+                return
+            
+            # ፋይሉ መኖሩን ማረጋገጥ
+            if not os.path.exists(file_path):
+                logger.error(f"File not found: {file_path}")
+                await query.answer(
+                    f"❌ ፋይሉ በሲስተሙ ላይ አልተገኘም\n"
+                    f"📁 የተፈለገው መንገድ: `{file_path}`",
+                    show_alert=True
+                )
+                return
+            
+            # የፋይል መጠን ማግኘት
+            file_size = os.path.getsize(file_path)
+            logger.info(f"📏 የፋይል መጠን: {file_size} bytes ({file_size / 1024:.1f} KB)")
+            
+            # ትልቅ ፋይል ከሆነ ማሳወቅ
+            if file_size > 20 * 1024 * 1024:  # 20MB
+                await query.answer(
+                    f"⚠️ ፋይሉ ትልቅ ነው ({file_size / (1024*1024):.1f}MB)\n"
+                    f"እየተላከ ነው...",
+                    show_alert=False
+                )
+            
+            # ፋይሉን መላክ
+            try:
+                async with aiofiles.open(file_path, 'rb') as f:
+                    file_data = await f.read()
+                
+                await context.bot.send_document(
+                    chat_id=user_id,
+                    document=file_data,
+                    filename=f"original_{book_id}_{book['title'][:30]}.pdf",
+                    caption=(
+                        f"📚 **{book['title']}**\n"
+                        f"📌 ዋናው ፋይል ለDRM መመስጠር\n\n"
+                        f"📁 መጠን: {file_size / 1024:.1f} KB\n"
+                        f"🆔 ID: `{book_id}`\n\n"
+                        f"✍️ እባክዎ ፋይሉን በVeryPDF (ወይም በሚፈለገው መሳሪያ) በመመስጠር "
+                        f"ከዚያም የተመሰጠረውን ፋይል '📤 የተመሰጠረ ጫን' በመጫን ይመልሱ።"
+                    ),
+                    parse_mode="Markdown"
+                )
+                
+                logger.info(f"✅ ፋይል ተልኳል ለ book {book_id}")
+                await query.answer("✅ ፋይሉ ተልኳል")
+                
+            except aiofiles.errors.FileNotFoundError:
+                logger.error(f"File not found during read: {file_path}")
+                await query.answer("❌ ፋይሉ ሲነበብ አልተገኘም", show_alert=True)
+            except Exception as e:
+                logger.error(f"Error sending file: {e}")
+                await query.answer(f"❌ ፋይል መላክ አልተቻለም: {str(e)}", show_alert=True)
+            
+        except ValueError as e:
+            logger.error(f"Invalid book ID format: {e}")
+            await query.answer(f"❌ የተሳሳተ መታወቂያ ቅርጸት", show_alert=True)
         except Exception as e:
-            logging.error(f"Download original error: {e}")
-            await query.answer(f"❌ ስህተት: {e}", show_alert=True)
+            logger.error(f"Download original error: {e}")
+            await query.answer(f"❌ ስህተት: {str(e)}", show_alert=True)
 
+    # ================================================================
+    # 📤 የተመሰጠረ ፋይል ለመጫን ዝግጅት
+    # ================================================================
     elif data.startswith("admin_upload_encrypted_"):
-        book_id = int(data.split("_")[3])
-        context.user_data['encrypt_book_id'] = book_id
-        context.user_data['admin_action'] = 'upload_encrypted'
-        
-        await query.edit_message_text(
-            f"📤 የተመሰጠረ ፋይል ይጫኑ\n\n"
-            f"📚 ይዘት ID: `{book_id}`\n\n"
-            f"✍️ ፋይሉን ከVeryPDF (ወይም ከሚፈለገው መሳሪያ) ካመስጠሩ በኋላ "
-            f"እንደ Document (PDF) አድርገው ይላኩ።"
-        )
-        return
+        try:
+            book_id = int(data.split("_")[3])
+            logger.info(f"📤 የተመሰጠረ ፋይል ለመጫን ዝግጅት: Book ID = {book_id}")
+            
+            # መታወቂያ ማረጋገጥ
+            try:
+                security._validate_content_id(book_id)
+            except (ValueError, TypeError) as e:
+                logger.error(f"Invalid book ID: {e}")
+                await query.answer(f"❌ የተሳሳተ መታወቂያ: {e}", show_alert=True)
+                return
+            
+            # ይዘቱን ማግኘት
+            book = db.get_content_by_id(book_id)
+            if not book:
+                logger.error(f"Book with ID {book_id} not found")
+                await query.answer("❌ ይዘቱ አልተገኘም", show_alert=True)
+                return
+            
+            context.user_data['encrypt_book_id'] = book_id
+            context.user_data['admin_action'] = 'upload_encrypted'
+            
+            await query.edit_message_text(
+                f"📤 **የተመሰጠረ ፋይል ይጫኑ**\n\n"
+                f"📚 ይዘት: **{book['title']}**\n"
+                f"🆔 ID: `{book_id}`\n"
+                f"👤 ደራሲ: `{book['author_id']}`\n\n"
+                f"✍️ ፋይሉን ከVeryPDF (ወይም ከሚፈለገው መሳሪያ) ካመስጠሩ በኋላ "
+                f"እንደ Document (PDF) አድርገው ይላኩ።\n\n"
+                f"📌 ለመሰረዝ /cancel ይጫኑ።",
+                parse_mode="Markdown"
+            )
+            return
+            
+        except ValueError as e:
+            logger.error(f"Invalid book ID format: {e}")
+            await query.answer(f"❌ የተሳሳተ መታወቂያ", show_alert=True)
+        except Exception as e:
+            logger.error(f"Upload encrypted setup error: {e}")
+            await query.answer(f"❌ ስህተት: {str(e)}", show_alert=True)
 
     # ================================================================
     # 📚 ሁሉንም ይዘቶች ማየት
@@ -414,7 +514,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             await query.delete_message()
         except Exception as e:
-            logging.error(f"View all error: {e}")
+            logger.error(f"View all error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     # ================================================================
@@ -452,7 +552,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except (ValueError, TypeError) as e:
             await query.answer(f"❌ {e}", show_alert=True)
         except Exception as e:
-            logging.error(f"Download error: {e}")
+            logger.error(f"Download error: {e}")
             await query.answer(f"❌ ስህተት: {e}", show_alert=True)
 
     # ================================================================
@@ -476,7 +576,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             keyboard = [[InlineKeyboardButton("🔙 ወደ ዋና ሜኑ", callback_data="admin_menu")]]
             await query.edit_message_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         except Exception as e:
-            logging.error(f"Sales report error: {e}")
+            logger.error(f"Sales report error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     # ================================================================
@@ -511,7 +611,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             await query.edit_message_text("✅ በግምገማ ላይ ያሉ ደራሲያን ተልከዋል።")
         except Exception as e:
-            logging.error(f"Pending authors error: {e}")
+            logger.error(f"Pending authors error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     # ================================================================
@@ -527,7 +627,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text="🎉 የደራሲነት ማመልከቻዎ ተጽድቋል! አሁን ይዘቶችን መጫን ይችላሉ።"
             )
         except Exception as e:
-            logging.error(f"Approve author error: {e}")
+            logger.error(f"Approve author error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     elif data.startswith("admin_rej_auth_"):
@@ -536,7 +636,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             db.reject_author(target_id)
             await query.edit_message_text(f"❌ ደራሲ `{target_id}` ተከልክሏል።")
         except Exception as e:
-            logging.error(f"Reject author error: {e}")
+            logger.error(f"Reject author error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     # ================================================================
@@ -575,7 +675,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             await query.edit_message_text("✅ በግምገማ ላይ ያሉ ይዘቶች ተልከዋል።")
         except Exception as e:
-            logging.error(f"Pending books error: {e}")
+            logger.error(f"Pending books error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     # ================================================================
@@ -593,7 +693,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text=f"🎉 '{title}' የተሰኘው ይዘትዎ ተጽድቋል!"
                 )
         except Exception as e:
-            logging.error(f"Approve content error: {e}")
+            logger.error(f"Approve content error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     elif data.startswith("admin_rej_book_"):
@@ -608,7 +708,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     text=f"😔 '{title}' የተሰኘው ይዘትዎ ተከልክሏል።"
                 )
         except Exception as e:
-            logging.error(f"Reject content error: {e}")
+            logger.error(f"Reject content error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     # ================================================================
@@ -650,7 +750,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             await query.edit_message_text("✅ በግምገማ ላይ ያሉ ክፍያዎች ተልከዋል።")
         except Exception as e:
-            logging.error(f"Pending payments error: {e}")
+            logger.error(f"Pending payments error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     # ================================================================
@@ -690,7 +790,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await query.edit_message_text(f"❌ ክፍያ #{payment_id} ማጽደቅ አልተቻለም")
         except Exception as e:
-            logging.error(f"Approve payment error: {e}")
+            logger.error(f"Approve payment error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     elif data.startswith("admin_rej_pay_"):
@@ -709,7 +809,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 await query.edit_message_text(f"❌ ክፍያ #{payment_id} ውድቅ ማድረግ አልተቻለም")
         except Exception as e:
-            logging.error(f"Reject payment error: {e}")
+            logger.error(f"Reject payment error: {e}")
             await query.edit_message_text(f"❌ ስህተት: {e}")
 
     # ================================================================
@@ -761,14 +861,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ ስህተት ተፈጥሯል። እባክዎ እንደገና ይሞክሩ")
                 return
             
+            # የፋይል መኖር ማረጋገጥ
             if not update.message.document:
                 await update.message.reply_text("❌ እባክዎ የተመሰጠረውን ፋይል እንደ Document (PDF) አድርገው ይላኩ")
                 return
             
             doc = update.message.document
+            
+            # ፋይሉ PDF መሆኑን ማረጋገጥ
             if not doc.file_name.endswith('.pdf'):
                 await update.message.reply_text("❌ እባክዎ የፒዲኤፍ (PDF) ፋይል ብቻ ይላኩ!")
                 return
+            
+            logger.info(f"📤 የተመሰጠረ ፋይል እየተቀበለ ነው: {doc.file_name} (ID: {book_id})")
             
             os.makedirs("files/encrypted", exist_ok=True)
             
@@ -776,32 +881,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             telegram_file = await context.bot.get_file(doc.file_id)
             await telegram_file.download_to_drive(encrypted_file_path)
             
+            logger.info(f"✅ ፋይል ተቀምጧል: {encrypted_file_path}")
+            
             # ውሂብ ጎታ ማዘመን
             success = db.update_content_with_encrypted_file(book_id, encrypted_file_path, user_id, "በአድሚን ተመስጥሯል")
             
             if success:
                 book = db.get_content_by_id(book_id)
+                logger.info(f"✅ ይዘት {book_id} ተመስጥሯል እና ተዘምኗል")
+                
+                # ለደራሲ ማሳወቅ
+                if book:
+                    await context.bot.send_message(
+                        chat_id=book['author_id'],
+                        text=f"🔔 ይዘትዎ **'{book['title']}'** በተሳካ ሁኔታ ተመስጥሯል!\n\n"
+                             f"📌 እባክዎ በ **'📊 የሽያጭ ሪፖርት'** በኩል ያጽድቁ ወይም ውድቅ ያድርጉ።",
+                        parse_mode="Markdown"
+                    )
+                
                 await update.message.reply_text(
                     f"✅ የተመሰጠረ ፋይል በተሳካ ሁኔታ ተጭኗል!\n"
                     f"📚 {book['title'] if book else ''}\n"
                     f"📌 ለደራሲ ማጽደቅ ተልኳል"
                 )
-                # ደራሲውን ማሳወቅ
-                if book:
-                    await context.bot.send_message(
-                        chat_id=book['author_id'],
-                        text=f"🔔 ይዘትዎ '{book['title']}' ተመስጥሯል!\n"
-                             f"📌 እባክዎ በ'📊 የሽያጭ ሪፖርት' በኩል ያጽድቁ ወይም ውድቅ ያድርጉ።"
-                    )
             else:
+                logger.error(f"❌ ይዘት ID {book_id} ማዘመን አልተቻለም")
                 await update.message.reply_text(f"❌ ይዘት ID {book_id} ማዘመን አልተቻለም")
             
             context.user_data['admin_action'] = None
             await show_menu(update, context)
             
         except Exception as e:
-            logging.error(f"Upload encrypted error: {e}")
-            await update.message.reply_text(f"❌ ስህተት: {e}")
+            logger.error(f"Upload encrypted error: {e}")
+            await update.message.reply_text(f"❌ ስህተት: {str(e)}")
 
     # ================================================================
     # 🔍 ተጠቃሚ ፈልግ
@@ -817,7 +929,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     msg += f"• `{user['telegram_id']}` - {user['first_name'] or 'N/A'} (@{user['username'] or 'N/A'})\n"
                 await update.message.reply_text(msg, parse_mode="Markdown")
         except Exception as e:
-            logging.error(f"Find user error: {e}")
+            logger.error(f"Find user error: {e}")
             await update.message.reply_text(f"❌ ስህተት: {e}")
         
         context.user_data['admin_action'] = None
@@ -846,7 +958,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     success += 1
                 except Exception as e:
                     failed += 1
-                    logging.warning(f"Failed to send to {user['telegram_id']}: {e}")
+                    logger.warning(f"Failed to send to {user['telegram_id']}: {e}")
                 
                 if (i + 1) % 20 == 0:
                     await asyncio.sleep(0.5)
@@ -857,7 +969,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"❌ ያልተሳካ: {failed}"
             )
         except Exception as e:
-            logging.error(f"Broadcast error: {e}")
+            logger.error(f"Broadcast error: {e}")
             await update.message.reply_text(f"❌ ስህተት: {e}")
         
         context.user_data['admin_action'] = None
@@ -893,7 +1005,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError:
             await update.message.reply_text("❌ እባክዎ ትክክለኛ ቁጥር ያስገቡ።")
         except Exception as e:
-            logging.error(f"Find author error: {e}")
+            logger.error(f"Find author error: {e}")
             await update.message.reply_text(f"❌ ስህተት: {e}")
         
         context.user_data['admin_action'] = None
@@ -922,7 +1034,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except ValueError:
             await update.message.reply_text("❌ እባክዎ ትክክለኛ ቁጥር ያስገቡ።")
         except Exception as e:
-            logging.error(f"Download by ID error: {e}")
+            logger.error(f"Download by ID error: {e}")
             await update.message.reply_text(f"❌ ስህተት: {e}")
         
         context.user_data['admin_action'] = None
@@ -951,9 +1063,9 @@ def main():
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(MessageHandler(filters.Document.ALL & ~filters.COMMAND, handle_message))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_message))
     
-    print("👑 Admin Bot በተሳካ ሁኔታ ተነስቷል...")
+    logger.info("👑 Admin Bot በተሳካ ሁኔታ ተነስቷል...")
     app.run_polling()
 
 
