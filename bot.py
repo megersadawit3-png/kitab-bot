@@ -1,5 +1,10 @@
+"""
+🤖 bot.py — ዋናው የኪታብ ቦት
+"""
+
 import logging
 import os
+import sys
 import aiofiles
 import re
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
@@ -16,8 +21,24 @@ from config import BOT_TOKEN, ADMIN_ID, TELEBIRR_PHONE, TELEBIRR_ACCOUNT_NAME
 import database as db
 from utils import security
 
-# የሎግ ማስተካከያ
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+# =====================================================================
+# 📝 LOGGING CONFIGURATION (UTF-8 Compatible)
+# =====================================================================
+
+# Force UTF-8 encoding for stdout (fixes garbled text in Codespaces)
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except AttributeError:
+    # Python < 3.7 fallback
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+
+logger = logging.getLogger(__name__)
 
 # =====================================================================
 # 🔄 የውይይት መቆጣጠሪያ ደረጃዎች
@@ -164,7 +185,7 @@ async def notify_admin_new_book(bot, book_id, title, price, file_path):
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
     except Exception as e:
-        logging.error(f"Failed to send file review to admin: {e}")
+        logger.error(f"Failed to send file review to admin: {e}")
 
 
 async def notify_admin_encryption_complete(bot, book_id, title, author_id):
@@ -1153,9 +1174,11 @@ async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYP
 def main():
     if not os.path.exists('files'):
         os.makedirs('files')
-        logging.info("📁 'files' ፎልደር ተፈጥሯል።")
+        logger.info("📁 'files' folder created.")
 
     db.init_db()
+    logger.info("✅ Database initialized.")
+    
     app = Application.builder().token(BOT_TOKEN).build()
     
     search_handler = ConversationHandler(
@@ -1200,7 +1223,7 @@ def main():
     app.add_handler(CallbackQueryHandler(handle_callback)) 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    print("✅ Kitab Bot በተሳካ ሁኔታ ተነስቷል...")
+    print("✅ Kitab Bot started successfully...")
     app.run_polling()
 
 
