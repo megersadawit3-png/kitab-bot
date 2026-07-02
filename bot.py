@@ -918,7 +918,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     lang = db.get_user_lang(user_id)
 
-    # የአድሚን-ብቻ ድርጊቶች ማረጋገጫ
+    # 🔥 አስፈላጊ: አዝራሩ መነካቱን ወዲያውኑ ለቴሌግራም እናሳውቃለን
+    await query.answer()
+
+    # የአድሚን-ብቻ ድርጊቶች ማረጋገጫ (ከ answer በኋላ)
     ADMIN_ONLY_PREFIXES = (
         "pay_app_", "pay_rej_",
         "approve_book_", "reject_book_",
@@ -930,8 +933,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("⛔ ይህንን ድርጊት ለመፈጸም ፈቃድ የለዎትም።", show_alert=True)
         return
 
-    await query.answer()
-    
     # --- የደራሲ ሪፖርት ካልባኮች ---
     if data.startswith("author_report_"):
         await author_report_by_period(update, context)
@@ -983,7 +984,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=user_id, text="\n".join(lines), parse_mode="Markdown")
         return
 
-    # --- አድሚን ፋይል ማውረድ ---
+    # --- አድሚን ፋይል ማውረድ (አሁን query.answer() ተጠርቷል) ---
     if data.startswith("admin_download_"):
         content_id = data.split("_")[2]
         try:
@@ -1016,7 +1017,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await show_payment_instructions(update, context, book)
         return
 
-    # --- የሪሲት ሊንክ አዝራር (ከተጠቃሚ ግቤት ይልቅ) ---
+    # --- የሪሲት ሊንክ አዝራር ---
     elif data.startswith("submit_ref_"):
         book_id = data.split("_")[2]
         context.user_data['payment_book_id'] = book_id
@@ -1024,6 +1025,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if lang == "or": msg = "✍️ Maaloo lakkoofsa heeregaa (Ref) barreessi፦"
         elif lang == "en": msg = "✍️ Please type the Transaction Ref number here:"
         await context.bot.send_message(chat_id=user_id, text=msg)
+        # 🔥 ወደ ቀጣዩ የውይይት ደረጃ መሄድ አለበት
         return AWAITING_TELEBIRR_REF
 
     elif data.startswith("download_"):
@@ -1041,6 +1043,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async with aiofiles.open(book['file_path'], 'rb') as f:
                 file_data = await f.read()
             await context.bot.send_document(chat_id=user_id, document=file_data, filename=os.path.basename(book['file_path']), caption=f"📥 {book['title']}", protect_content=True)
+        else:
+            await query.answer("❌ ፋይሉ አልተገኘም", show_alert=True)
+        return
 
     # --- አድሚን ክፍያ ማጽደቅ (አዲስ ስርዓት) ---
     elif data.startswith("admin_app_pay_"):
@@ -1157,6 +1162,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text="❌ የደራሲነት ጥያቄው ውድቅ ተደርጓል።", reply_markup=None)
         return
 
+    # ሌላ ያልተጠበቀ ካልባክ ከሆነ
+    else:
+        await query.answer("⚠️ ያልታወቀ ትዕዛዝ", show_alert=True)
+
 
 # =====================================================================
 # ⏳ የቴሌብር Ref መቀበያ (አሮጌ ስርዓት - ለኋላ ተኳሃኝነት)
@@ -1164,7 +1173,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def process_telebirr_ref(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """የቴሌብር Ref ማስተናገጃ (አሮጌ ስርዓት)"""
     # አሁን አዲሱን ስርዓት እየተጠቀምን ነው
-    # ይህ ለኋላ ተኳሃኝነት ተቀምጧል
     await process_receipt_link(update, context)
 
 
